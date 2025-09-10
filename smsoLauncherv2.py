@@ -6,10 +6,6 @@ from PIL import Image, ImageDraw, ImageFont
 st.set_page_config(page_title="SMSOLauncher", layout="wide")
 
 def make_export_xlsx(df, launcher_name: str) -> bytes:
-    """
-    df must contain: ['Driver name','CX','Van','Staging Location','Pad','Time']
-    Returns an .xlsx file as bytes.
-    """
     export_cols = [
         'Order', 'Driver name', "CX #'s", 'Van', 'Staging Location', 'Pad', 'Time'
     ]

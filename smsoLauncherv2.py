@@ -10,7 +10,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
     df must contain: ['Driver name','CX','Van','Staging Location','Pad','Time']
     Returns an .xlsx file as bytes.
     """
-    # 1) Create an ordered DataFrame matching the on-screen order
     export_cols = [
         'Order', 'Driver name', "CX #'s", 'Van', 'Staging Location', 'Pad', 'Time'
     ]
@@ -18,16 +17,13 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
     out.insert(0, 'Order', out.index + 1)
     out.rename(columns={'CX': "CX #'s"}, inplace=True)
 
-    # 2) Write to Excel (with light formatting)
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         out.to_excel(writer, index=False, sheet_name='Schedule')
         ws = writer.sheets['Schedule']
 
-        # Freeze top row
         ws.freeze_panes = "A2"
 
-        # Set some friendly column widths
         widths = {
             'A': 6,   # Order
             'B': 32,  # Driver name
@@ -40,7 +36,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         for col, w in widths.items():
             ws.column_dimensions[col].width = w
 
-        # Optional: title in A1 replaced by header row; if you want a “Launcher” header sheet:
         # meta = writer.book.create_sheet("Meta")
         # meta['A1'] = "Launcher"; meta['B1'] = launcher_name
 
@@ -227,7 +222,6 @@ if routes_file and zonemap_file:
     zonemap = parse_zonemap(zonemap_file)
 
     df = routes.merge(zonemap, on='CX', how='inner')
-    # keep SMSO-only from ZoneMap already; drop missing pad or time
     df = df.dropna(subset=['Pad','Time']).copy()
 
     # sorting by time then pad

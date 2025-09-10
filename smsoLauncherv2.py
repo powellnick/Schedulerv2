@@ -97,7 +97,7 @@ def parse_zonemap(file):
                     if 0 <= cc < cols:
                         sval = z.iat[r,cc]
                         if isinstance(sval,str) and sval.startswith('STG'):
-                            staging = sval; break
+                            staging = sval.replace("STG.", "") if isinstance(sval, str) else sval; break
                 pad=None; time=None
                 for dr in range(1,10):
                     rr = r-dr

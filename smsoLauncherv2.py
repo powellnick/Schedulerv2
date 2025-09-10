@@ -213,7 +213,7 @@ def render_schedule(df, launcher=""):
 
     return img
 
-st.title("Schedule Builder — Routes + ZoneMap")
+st.title("SMSO Schedule Builder")
 launcher = st.text_input("Launcher name", value="", placeholder="Enter launcher name")
 
 col1, col2 = st.columns(2)

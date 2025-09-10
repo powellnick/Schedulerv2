@@ -239,9 +239,9 @@ if routes_file and zonemap_file:
     st.image(img, caption="Final Schedule")
 
     png_buf = io.BytesIO()
-        img.save(png_buf, format="PNG")
-        png_buf.seek(0)
-        st.download_button(
+    img.save(png_buf, format="PNG")
+    png_buf.seek(0)
+    st.download_button(
         "Download PNG",
         data=png_buf.getvalue(),
         file_name="schedule.png",

@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 
-st.set_page_config(page_title="Schedule Builder (Routes + ZoneMap)", layout="wide")
+st.set_page_config(page_title="SMSOLauncher", layout="wide")
 
 def extract_time_range_start(s):
     m = re.search(r'(\d{1,2}:\d{2})', s or '')
@@ -29,9 +29,11 @@ def parse_routes(file):
     df = pd.read_excel(file, sheet_name=0)
     df = df[df['Route code'].astype(str).str.startswith('CX', na=False)].copy()
     df['CX'] = df['Route code'].str.extract(r'(CX\d+)')
-    # Van # may not exist in some exports
     if 'Van #' not in df.columns:
         df['Van #'] = None
+    else:
+        df['Van #'] = df['Van #'].astype(str).str.strip()
+
     return df[['CX','Driver name','Van #']]
 
 def parse_zonemap(file):

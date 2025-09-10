@@ -123,7 +123,7 @@ def render_schedule(df, launcher=""):
     # Layout
     left_pad_w = 200
     idx_col_w = 60   # more space for index numbers
-    name_w = 380
+    name_w = 480
     cx_w = 90
     van_w = 80
     stg_w = 140

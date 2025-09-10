@@ -238,6 +238,16 @@ if routes_file and zonemap_file:
     img = render_schedule(df, launcher=launcher)
     st.image(img, caption="Final Schedule")
 
+    png_buf = io.BytesIO()
+        img.save(png_buf, format="PNG")
+        png_buf.seek(0)
+        st.download_button(
+        "Download PNG",
+        data=png_buf.getvalue(),
+        file_name="schedule.png",
+        mime="image/png",
+    )
+
     xlsx_bytes = make_export_xlsx(df, launcher_name=launcher or "")
     st.download_button(
         "Download Excel",

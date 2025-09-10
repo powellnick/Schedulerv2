@@ -5,6 +5,48 @@ from PIL import Image, ImageDraw, ImageFont
 
 st.set_page_config(page_title="SMSOLauncher", layout="wide")
 
+def make_export_xlsx(df, launcher_name: str) -> bytes:
+    """
+    df must contain: ['Driver name','CX','Van #','Staging Location','Pad','Time']
+    Returns an .xlsx file as bytes.
+    """
+    # 1) Create an ordered DataFrame matching the on-screen order
+    export_cols = [
+        'Order', 'Driver name', "CX #'s", 'Van #', 'Staging Location', 'Pad', 'Time'
+    ]
+    out = df.copy().reset_index(drop=True)
+    out.insert(0, 'Order', out.index + 1)
+    out.rename(columns={'CX': "CX #'s"}, inplace=True)
+
+    # 2) Write to Excel (with light formatting)
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        out.to_excel(writer, index=False, sheet_name='Schedule')
+        ws = writer.sheets['Schedule']
+
+        # Freeze top row
+        ws.freeze_panes = "A2"
+
+        # Set some friendly column widths
+        widths = {
+            'A': 6,   # Order
+            'B': 32,  # Driver name
+            'C': 8,   # CX #'s
+            'D': 10,  # Van #
+            'E': 18,  # Staging Location
+            'F': 6,   # Pad
+            'G': 8,   # Time
+        }
+        for col, w in widths.items():
+            ws.column_dimensions[col].width = w
+
+        # Optional: title in A1 replaced by header row; if you want a “Launcher” header sheet:
+        # meta = writer.book.create_sheet("Meta")
+        # meta['A1'] = "Launcher"; meta['B1'] = launcher_name
+
+    buffer.seek(0)
+    return buffer.getvalue()
+
 def extract_time_range_start(s):
     m = re.search(r'(\d{1,2}:\d{2})', s or '')
     return m.group(1) if m else None
@@ -195,8 +237,16 @@ if routes_file and zonemap_file:
 
     img = render_schedule(df, launcher=launcher)
     st.image(img, caption="Final Schedule")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    st.download_button("Download PNG", data=buf.getvalue(), file_name="schedule.png", mime="image/png")
-else:
-    st.info("Upload both the **Routes** and **ZoneMap** files to generate the schedule.")
+
+    xlsx_bytes = make_export_xlsx(df, launcher_name=launcher or "")
+    st.download_button(
+        "Download Excel",
+        data=xlsx_bytes,
+        file_name="schedule.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    #buf = io.BytesIO()
+    #img.save(buf, format="PNG")
+    #st.download_button("Download PNG", data=buf.getvalue(), file_name="schedule.png", mime="image/png")
+#else:
+    #st.info("Upload both the **Routes** and **ZoneMap** files to generate the schedule.")

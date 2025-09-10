@@ -7,12 +7,12 @@ st.set_page_config(page_title="SMSOLauncher", layout="wide")
 
 def make_export_xlsx(df, launcher_name: str) -> bytes:
     """
-    df must contain: ['Driver name','CX','Van #','Staging Location','Pad','Time']
+    df must contain: ['Driver name','CX','Van','Staging Location','Pad','Time']
     Returns an .xlsx file as bytes.
     """
     # 1) Create an ordered DataFrame matching the on-screen order
     export_cols = [
-        'Order', 'Driver name', "CX #'s", 'Van #', 'Staging Location', 'Pad', 'Time'
+        'Order', 'Driver name', "CX #'s", 'Van', 'Staging Location', 'Pad', 'Time'
     ]
     out = df.copy().reset_index(drop=True)
     out.insert(0, 'Order', out.index + 1)
@@ -32,7 +32,7 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
             'A': 6,   # Order
             'B': 32,  # Driver name
             'C': 8,   # CX #'s
-            'D': 10,  # Van #
+            'D': 10,  # Van
             'E': 18,  # Staging Location
             'F': 6,   # Pad
             'G': 8,   # Time
@@ -71,12 +71,12 @@ def parse_routes(file):
     df = pd.read_excel(file, sheet_name=0)
     df = df[df['Route code'].astype(str).str.startswith('CX', na=False)].copy()
     df['CX'] = df['Route code'].str.extract(r'(CX\d+)')
-    if 'Van #' not in df.columns:
-        df['Van #'] = None
+    if 'Van' not in df.columns:
+        df['Van'] = None
     else:
-        df['Van #'] = df['Van #'].astype(str).str.strip()
+        df['Van'] = df['Van'].astype(str).str.strip()
 
-    return df[['CX','Driver name','Van #']]
+    return df[['CX','Driver name','Van']]
 
 def parse_zonemap(file):
     z = pd.read_excel(file, sheet_name=0, header=None)
@@ -163,7 +163,7 @@ def render_schedule(df, launcher=""):
         d.rectangle([x1, 62, x1+w, header_h-8], fill=(255,235,150), outline=(0,0,0))
         d.text((x1+10, 70), label, fill=(0,0,0), font=font_small_bold)
     cell(x0, cx_w, "CX #’s")
-    cell(x0+cx_w, van_w, "Van #")
+    cell(x0+cx_w, van_w, "Van")
     cell(x0+cx_w+van_w, stg_w, "Staging\nLocation")
 
     pad_colors = {1:(226,40,216), 2:(74,120,206), 3:(73,230,54)}
@@ -201,7 +201,7 @@ def render_schedule(df, launcher=""):
             # Van
             x += cx_w
             d.rectangle([x, y, x+van_w, y+row_h], fill=(255,245,190), outline=(0,0,0))
-            d.text((x+8, y+8), "" if pd.isna(row['Van #']) else str(row['Van #']), fill=(0,0,0), font=font_bold)
+            d.text((x+8, y+8), "" if pd.isna(row['Van']) else str(row['Van']), fill=(0,0,0), font=font_bold)
 
             # Staging
             x += van_w

@@ -176,7 +176,7 @@ def render_schedule(df, launcher=""):
 
         for _, row in sub.iterrows():
             base_color = pad_colors.get(int(p), (220,220,220))
-            row_color = tuple(min(255, int(c*1.5)) for c in base_color)
+            row_color = tuple(min(255, int(c*1.75)) for c in base_color)
             
             # number cell (centered)
             d.rectangle([left_pad_w, y, left_pad_w+idx_col_w, y+row_h], fill=row_color, outline=(0,0,0))

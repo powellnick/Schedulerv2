@@ -175,13 +175,13 @@ def render_schedule(df, launcher=""):
             yy += 24
 
         for _, row in sub.iterrows():
+            base_color = pad_colors.get(int(p), (220,220,220))
+            row_color = tuple(min(255, int(c*1.3)) for c in base_color)
+            
             # number cell (centered)
             d.rectangle([left_pad_w, y, left_pad_w+idx_col_w, y+row_h], fill=row_color, outline=(0,0,0))
             w = d.textlength(str(idx), font=font_bold)
             d.text((left_pad_w + (idx_col_w - w)/2, y+8), str(idx), fill=(0,0,0), font=font_bold)
-            
-            base_color = pad_colors.get(int(p), (220,220,220))
-            row_color = tuple(min(255, int(c*1.3)) for c in base_color)
             
             
             # name

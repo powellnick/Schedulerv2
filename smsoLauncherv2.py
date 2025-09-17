@@ -118,7 +118,7 @@ def render_schedule(df, launcher=""):
     cx_w = 90
     van_w = 80
     stg_w = 140
-    header_h = 110
+    header_h = 140
     row_h = 38
     gap = 2
 

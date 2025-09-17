@@ -176,7 +176,7 @@ def render_schedule(df, launcher=""):
 
         for _, row in sub.iterrows():
             # number cell (centered)
-            d.rectangle([left_pad_w, y, left_pad_w+idx_col_w, y+row_h], fill=(235,240,250), outline=(0,0,0))
+            d.rectangle([left_pad_w, y, left_pad_w+idx_col_w, y+row_h], fill=row_color, outline=(0,0,0))
             w = d.textlength(str(idx), font=font_bold)
             d.text((left_pad_w + (idx_col_w - w)/2, y+8), str(idx), fill=(0,0,0), font=font_bold)
             

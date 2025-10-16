@@ -7,25 +7,18 @@ st.set_page_config(page_title="SMSOLauncher", layout="wide")
 
 def make_export_xlsx(df, launcher_name: str) -> bytes:
     export_cols = [
-        'Order', 'Driver name', "CX #'s", 'Van', 'Staging Location', 'Pad', 'Time',
-        'Front', 'Back', 'D Side', 'P Side'
+        'Order', 'Driver name', "CX #'s", 'Van', 'Staging Location', 'Pad', 'Time'
     ]
     out = df.copy().reset_index(drop=True)
     out.insert(0, 'Order', out.index + 1)
     out.rename(columns={'CX': "CX #'s"}, inplace=True)
-    for col in ['Front', 'Back', 'D Side', 'P Side']:
-        if col not in out.columns:
-            out[col] = ''
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         out.to_excel(writer, index=False, sheet_name='Schedule')
         ws = writer.sheets['Schedule']
 
-        ws.merge_cells('H1:K1')
-        ws['H1'] = 'Van Pictures'
-
-        ws.freeze_panes = "A3"
+        ws.freeze_panes = "A2"
 
         widths = {
             'A': 6,   # Order
@@ -35,10 +28,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
             'E': 18,  # Staging Location
             'F': 6,   # Pad
             'G': 8,   # Time
-            'H': 10,  # Front
-            'I': 10,  # Back
-            'J': 10,  # D Side
-            'K': 10,  # P Side
         }
         for col, w in widths.items():
             ws.column_dimensions[col].width = w

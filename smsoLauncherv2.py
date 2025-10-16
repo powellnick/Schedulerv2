@@ -224,15 +224,10 @@ def render_schedule(df, launcher=""):
             d.text((x+8, y+8), str(row['Staging Location']), fill=(0,0,0), font=font_bold)
 
             # Four empty subcolumns for Van Pictures (after staging)
-            for i in range(4):
-                x += stg_w if i == 0 else 0  # advance from staging once
-                x += pic_w if i > 0 else 0   # normal step for subsequent boxes
-                # compute left edge properly for first pic cell
-                if i == 0:
-                    x = left_pad_w + idx_col_w + name_w + cx_w + van_w + stg_w
+            x = left_pad_w + idx_col_w + name_w + cx_w + van_w + stg_w  # starting x for pictures
+            for _ in range(4):
                 d.rectangle([x, y, x+pic_w, y+row_h], fill=row_color, outline=(0,0,0))
                 # leave empty
-                # move to next pic cell position
                 x += pic_w
 
             y += row_h + gap

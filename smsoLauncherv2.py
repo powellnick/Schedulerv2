@@ -118,7 +118,7 @@ def render_schedule(df, launcher=""):
     cx_w = 90
     van_w = 80
     stg_w = 140
-    header_h = 110
+    header_h = 120
     row_h = 38
     gap = 2
 
@@ -157,7 +157,7 @@ def render_schedule(df, launcher=""):
     cell(x0+cx_w, van_w, "Van")
     cell(x0+cx_w+van_w, stg_w, "Staging\nLocation")
 
-    pad_colors = {1:(226,40,216), 2:(74,120,206), 3:(73,230,54)}
+    pad_colors = {1:(226,40,216), 2:(73,230,54), 3:(74,120,206)}
 
     y = header_h
     idx = 1
@@ -175,28 +175,32 @@ def render_schedule(df, launcher=""):
             yy += 24
 
         for _, row in sub.iterrows():
+            base_color = pad_colors.get(int(p), (220,220,220))
+            row_color = tuple(min(255, int(c*1.75)) for c in base_color)
+            
             # number cell (centered)
-            d.rectangle([left_pad_w, y, left_pad_w+idx_col_w, y+row_h], fill=(235,240,250), outline=(0,0,0))
+            d.rectangle([left_pad_w, y, left_pad_w+idx_col_w, y+row_h], fill=row_color, outline=(0,0,0))
             w = d.textlength(str(idx), font=font_bold)
             d.text((left_pad_w + (idx_col_w - w)/2, y+8), str(idx), fill=(0,0,0), font=font_bold)
-
+            
+            
             # name
-            d.rectangle([left_pad_w+idx_col_w, y, left_pad_w+idx_col_w+name_w, y+row_h], fill=(230,220,240), outline=(0,0,0))
+            d.rectangle([left_pad_w+idx_col_w, y, left_pad_w+idx_col_w+name_w, y+row_h], fill=row_color, outline=(0,0,0))
             d.text((left_pad_w+idx_col_w+8, y+8), str(row['Driver name']), fill=(0,0,0), font=font)
 
             # CX
             x = left_pad_w+idx_col_w+name_w
-            d.rectangle([x, y, x+cx_w, y+row_h], fill=(255,245,190), outline=(0,0,0))
+            d.rectangle([x, y, x+cx_w, y+row_h], fill=row_color, outline=(0,0,0))
             d.text((x+8, y+8), str(row['CX']).replace('CX',''), fill=(0,0,0), font=font_bold)
 
             # Van
             x += cx_w
-            d.rectangle([x, y, x+van_w, y+row_h], fill=(255,245,190), outline=(0,0,0))
+            d.rectangle([x, y, x+van_w, y+row_h], fill=row_color, outline=(0,0,0))
             d.text((x+8, y+8), "" if pd.isna(row['Van']) else str(row['Van']), fill=(0,0,0), font=font_bold)
 
             # Staging
             x += van_w
-            d.rectangle([x, y, x+stg_w, y+row_h], fill=(255,245,190), outline=(0,0,0))
+            d.rectangle([x, y, x+stg_w, y+row_h], fill=row_color, outline=(0,0,0))
             d.text((x+8, y+8), str(row['Staging Location']), fill=(0,0,0), font=font_bold)
 
             y += row_h + gap

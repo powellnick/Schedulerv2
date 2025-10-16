@@ -17,7 +17,7 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
     for col in ['Front', 'Back', 'D Side', 'P Side']:
         if col not in out.columns:
             out[col] = ''
-    out = out[['Order','Driver name',"CX #'s",'Van','Staging Location','Front','Back','D Side','P Side','Pad','Time']]
+    out = out[['Order','Pad','Time','Driver name',"CX #'s",'Van','Staging Location','Front','Back','D Side','P Side']]
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -26,23 +26,23 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
 
         # Insert a new top row and merge cells for Van Pictures header
         ws.insert_rows(1)
-        ws.merge_cells('F1:I1')
-        ws['F1'] = 'Van Pictures'
+        ws.merge_cells('H1:K1')
+        ws['H1'] = 'Van Pictures'
 
         ws.freeze_panes = "A3"
 
         widths = {
             'A': 6,   # Order
-            'B': 32,  # Driver name
-            'C': 8,   # CX #'s
-            'D': 10,  # Van
-            'E': 18,  # Staging Location
-            'F': 10,  # Front
-            'G': 10,  # Back
-            'H': 10,  # D Side
-            'I': 10,  # P Side
-            'J': 6,   # Pad
-            'K': 8,   # Time
+            'B': 6,   # Pad
+            'C': 8,   # Time
+            'D': 32,  # Driver name
+            'E': 8,   # CX #'s
+            'F': 10,  # Van
+            'G': 18,  # Staging Location
+            'H': 10,  # Front (Van Pictures)
+            'I': 10,  # Back (Van Pictures)
+            'J': 10,  # D Side (Van Pictures)
+            'K': 10,  # P Side (Van Pictures)
         }
         for col, w in widths.items():
             ws.column_dimensions[col].width = w
@@ -171,12 +171,11 @@ def render_schedule(df, launcher=""):
         d.text((x1+10, 70), label, fill=(0,0,0), font=font_small_bold)
     cell(x0, cx_w, "CX #’s")
     cell(x0+cx_w, van_w, "Van")
-    # Add four empty subcolumns header for Van Pictures
-    cell(x0+cx_w+van_w, pic_w, "Front")
-    cell(x0+cx_w+van_w+pic_w, pic_w, "Back")
-    cell(x0+cx_w+van_w+2*pic_w, pic_w, "D Side")
-    cell(x0+cx_w+van_w+3*pic_w, pic_w, "P Side")
-    cell(x0+cx_w+van_w+4*pic_w, stg_w, "Staging\nLocation")
+    cell(x0+cx_w+van_w, stg_w, "Staging\nLocation")
+    cell(x0+cx_w+van_w+stg_w, pic_w, "Front")
+    cell(x0+cx_w+van_w+stg_w+pic_w, pic_w, "Back")
+    cell(x0+cx_w+van_w+stg_w+2*pic_w, pic_w, "D Side")
+    cell(x0+cx_w+van_w+stg_w+3*pic_w, pic_w, "P Side")
 
     pad_colors = {1:(73,230,54), 2:(74,120,206), 3:(226,40,216)}
 
@@ -219,16 +218,22 @@ def render_schedule(df, launcher=""):
             d.rectangle([x, y, x+van_w, y+row_h], fill=row_color, outline=(0,0,0))
             d.text((x+8, y+8), "" if pd.isna(row['Van']) else str(row['Van']), fill=(0,0,0), font=font_bold)
 
-            # Four empty subcolumns for Van Pictures
-            for i in range(4):
-                x += pic_w
-                d.rectangle([x, y, x+pic_w, y+row_h], fill=row_color, outline=(0,0,0))
-                # No text inside these cells
-
-            # Staging
-            x += pic_w
+            # Staging (now before pictures)
+            x += van_w
             d.rectangle([x, y, x+stg_w, y+row_h], fill=row_color, outline=(0,0,0))
             d.text((x+8, y+8), str(row['Staging Location']), fill=(0,0,0), font=font_bold)
+
+            # Four empty subcolumns for Van Pictures (after staging)
+            for i in range(4):
+                x += stg_w if i == 0 else 0  # advance from staging once
+                x += pic_w if i > 0 else 0   # normal step for subsequent boxes
+                # compute left edge properly for first pic cell
+                if i == 0:
+                    x = left_pad_w + idx_col_w + name_w + cx_w + van_w + stg_w
+                d.rectangle([x, y, x+pic_w, y+row_h], fill=row_color, outline=(0,0,0))
+                # leave empty
+                # move to next pic cell position
+                x += pic_w
 
             y += row_h + gap
             idx += 1

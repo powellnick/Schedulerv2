@@ -157,7 +157,7 @@ def render_schedule(df, launcher=""):
     cell(x0+cx_w, van_w, "Van")
     cell(x0+cx_w+van_w, stg_w, "Staging\nLocation")
 
-    pad_colors = {1:(226,40,216), 2:(73,230,54), 3:(74,120,206)}
+    pad_colors = {1:(73,230,54), 2:(74,120,206), 3:(226,40,216)}
 
     y = header_h
     idx = 1

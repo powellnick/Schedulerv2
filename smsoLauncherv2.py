@@ -13,7 +13,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
     out.insert(0, 'Order', out.index + 1)
     out.rename(columns={'CX': "CX #'s"}, inplace=True)
 
-    # Add empty columns for Van Pictures
     for col in ['Front', 'Back', 'D Side', 'P Side']:
         if col not in out.columns:
             out[col] = ''
@@ -24,7 +23,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         out.to_excel(writer, index=False, sheet_name='Schedule')
         ws = writer.sheets['Schedule']
 
-        # Insert a new top row and merge cells for Van Pictures header
         ws.insert_rows(1)
         ws.merge_cells('H1:K1')
         ws['H1'] = 'Van Pictures'
@@ -46,9 +44,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         }
         for col, w in widths.items():
             ws.column_dimensions[col].width = w
-
-        # meta = writer.book.create_sheet("Meta")
-        # meta['A1'] = "Launcher"; meta['B1'] = launcher_name
 
     buffer.seek(0)
     return buffer.getvalue()
@@ -128,7 +123,7 @@ def time_to_minutes(t):
 def render_schedule(df, launcher=""):
     # Layout
     left_pad_w = 200
-    idx_col_w = 60   # more space for index numbers
+    idx_col_w = 60
     name_w = 600
     cx_w = 90
     van_w = 80
@@ -164,7 +159,6 @@ def render_schedule(df, launcher=""):
     d.rectangle([left_pad_w,0,width, header_h], outline=(0,0,0))
     d.text((left_pad_w+idx_col_w+10, 16), "DRIVER NAME", fill=(0,0,0), font=font_title)
 
-    # mini header row for the three added columns
     x0 = left_pad_w+idx_col_w+name_w
     def cell(x1,w,label):
         d.rectangle([x1, 62, x1+w, header_h-8], fill=(255,235,150), outline=(0,0,0))

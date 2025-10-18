@@ -2,6 +2,7 @@ import re, io, math
 import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
+import datetime as dt
 
 st.set_page_config(page_title="SMSOLauncher", layout="wide")
 
@@ -105,10 +106,22 @@ def parse_zonemap(file):
                         if isinstance(sval,str) and sval.startswith('STG'):
                             staging = sval.replace("STG.", "") if isinstance(sval, str) else sval; break
                 pad=None; time=None
-                # Search a small window above and around the SMSO cell
-                for rr in range(max(0, r-8), r):
-                    for cc in range(max(0, c-3), min(cols, c+4)):
-                        text = z.iat[rr, cc]
+
+                def _to_text(x):
+                    # Coerce numeric/datetime cells to readable text for regexes
+                    if isinstance(x, str):
+                        return x
+                    if isinstance(x, (pd.Timestamp, dt.datetime)):
+                        return x.strftime('%I:%M %p')
+                    if isinstance(x, dt.time):
+                        return x.strftime('%I:%M %p')
+                    return str(x)
+
+                # Wider search window: up to 20 rows above, 8 cols left/right
+                for rr in range(max(0, r-20), r):
+                    for cc in range(max(0, c-8), min(cols, c+9)):
+                        raw = z.iat[rr, cc]
+                        text = _to_text(raw)
                         if not isinstance(text, str):
                             continue
                         if pad is None:
@@ -123,6 +136,18 @@ def parse_zonemap(file):
                             break
                     if pad is not None and time is not None:
                         break
+
+                # Final fallback: look across the entire header row band for a time string
+                if time is None:
+                    for rr in range(max(0, r-25), r):
+                        for cc in range(cols):
+                            raw = z.iat[rr, cc]
+                            t = extract_time(_to_text(raw)) or extract_time_range_start(_to_text(raw))
+                            if t:
+                                time = t
+                                break
+                        if time is not None:
+                            break
                 out.append({'CX':cx, 'Pad':pad, 'Time':time, 'Staging Location': staging})
     return pd.DataFrame(out).drop_duplicates(subset=['CX'])
 

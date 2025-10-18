@@ -144,18 +144,15 @@ def render_schedule(df, launcher=""):
     row_h = 38
     gap = 2
 
-    groups = []
-    for (t,p), sub in df.groupby(['Time','Pad']):
+    def _pad_key(p):
         try:
-            p_int = int(p)
-            col = pad_colors.get(p_int, (220,220,220))
-            pad_label = f"Pad {p_int}"
+            return int(p)
         except Exception:
-            col = (235,235,235)
-            pad_label = str(p)
-        label = f"{pad_label}\n{t}"
+            return 99  # non-numeric (e.g., 'Unassigned') goes last
+    groups = []
+    for (t, p), sub in df.groupby(['Time','Pad']):
         groups.append((t, p, sub.sort_values('Driver name')))
-    groups.sort(key=lambda x: (time_to_minutes(x[0]), (x[1] if x[1] is not None else 9)))
+    groups.sort(key=lambda x: (time_to_minutes(x[0]), _pad_key(x[1])))
 
     total_rows = sum(len(g[2]) for g in groups)
     width = left_pad_w + idx_col_w + name_w + cx_w + van_w + 4*pic_w + stg_w + 40

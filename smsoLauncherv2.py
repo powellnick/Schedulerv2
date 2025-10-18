@@ -125,32 +125,57 @@ def parse_zonemap(file):
                 cx = cx_m.group(1)
                 # staging near the cell
                 staging = None
+                stg_col = None
                 for dc in [1,2,-1]:
                     cc = c+dc
                     if 0 <= cc < cols:
                         sval = z.iat[r,cc]
                         if isinstance(sval,str) and sval.startswith('STG'):
-                            staging = sval.replace("STG.", "") if isinstance(sval, str) else sval; break
+                            staging = sval.replace("STG.", "") if isinstance(sval, str) else sval
+                            stg_col = cc
+                            break
                 pad=None; time=None
-                # Search a small window above and around the SMSO cell
-                for rr in range(max(0, r-8), r):
-                    for cc in range(max(0, c-3), min(cols, c+4)):
-                        text = z.iat[rr, cc]
-                        if not isinstance(text, str):
-                            continue
-                        if pad is None:
-                            p = extract_pad(text)
+
+                # 1) Find the staging cell and remember its column
+                # Already handled above; now, if not found, try expanded search as fallback (existing behavior in edge cases)
+                if stg_col is None:
+                    for dc in [2,3,-2]:
+                        cc2 = c+dc
+                        if 0 <= cc2 < cols:
+                            sval = z.iat[r, cc2]
+                            if isinstance(sval, str) and sval.startswith('STG'):
+                                staging = sval.replace('STG.', '') if isinstance(sval, str) else sval
+                                stg_col = cc2
+                                break
+
+                # 2) TIME: scan upwards only in the STG column (preferred source for time headers)
+                if stg_col is not None:
+                    for rr in range(r-1, max(-1, r-30), -1):
+                        raw = z.iat[rr, stg_col]
+                        txt = _coerce_time_text(raw)
+                        t = extract_time(txt) or extract_time_range_start(txt)
+                        if t:
+                            time = t
+                            break
+
+                # 3) PAD: scan upwards in both the CX column and the STG column
+                for rr in range(r-1, max(-1, r-30), -1):
+                    if pad is None:
+                        txt1 = z.iat[rr, c]
+                        if isinstance(txt1, str):
+                            p = extract_pad(txt1)
                             if p is not None:
                                 pad = p
-                        if time is None:
-                            t = extract_time(text) or extract_time_range_start(text)
-                            if t:
-                                time = t
-                        if pad is not None and time is not None:
-                            break
-                    if pad is not None and time is not None:
-                        break
-                # Use fallback from pre-scan if needed
+                                break
+                    if pad is None and stg_col is not None:
+                        txt2 = z.iat[rr, stg_col]
+                        if isinstance(txt2, str):
+                            p = extract_pad(txt2)
+                            if p is not None:
+                                pad = p
+                                break
+
+                # 4) Fallback to pre-scan if either is still missing
                 if pad is None:
                     pad = pad_above[r]
                 if time is None:

@@ -194,6 +194,20 @@ def time_to_minutes(t):
     m = re.match(r'(\d{1,2}):(\d{2})', t)
     return int(m.group(1))*60 + int(m.group(2)) if m else 1_000_000
 
+def shift_time_str(t, delta_min=5):
+    """Add minutes to a time string like '11:10' or '11:10 am'. Returns 'H:MM' without am/pm."""
+    if not isinstance(t, str):
+        return t
+    m = re.match(r"\s*(\d{1,2}):(\d{2})", t)
+    if not m:
+        return t
+    h = int(m.group(1))
+    mi = int(m.group(2))
+    total = h*60 + mi + int(delta_min)
+    new_h = (total // 60) % 24
+    new_m = total % 60
+    return f"{new_h}:{new_m:02d}"
+
 def render_schedule(df, launcher=""):
     # Layout
     left_pad_w = 200
@@ -313,16 +327,19 @@ with col2:
     zonemap_file = st.file_uploader("Upload ZoneMap file (.xlsx)", type=["xlsx"], key="zonemap")
 
 if routes_file and zonemap_file:
+    # Keep ALL CX routes; attach ZoneMap data when present
     routes = parse_routes(routes_file)
     zonemap = parse_zonemap(zonemap_file)
 
-    # Keep ALL CX routes; attach ZoneMap data when present
     df = routes.merge(zonemap, on='CX', how='left')
+
+    # Add 5 minutes to the parsed pad time for display & export
+    df['Time'] = df['Time'].apply(shift_time_str)
 
     # Fill missing Pad with a numeric placeholder so renderer continues to work
     df['Pad'] = df['Pad'].fillna(9)
 
-    # Robust sort: missing/invalid times go last
+    # Robust sort: missing/invalid times go last (uses shifted times)
     df['__t'] = df['Time'].apply(lambda t: (int(t.split(':')[0])*60 + int(t.split(':')[1][:2])) if isinstance(t,str) and ':' in t else 999_999)
     df.sort_values(['__t','Pad','Driver name'], inplace=True)
     df.drop(columns='__t', inplace=True)

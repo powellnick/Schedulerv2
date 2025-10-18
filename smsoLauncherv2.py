@@ -77,7 +77,6 @@ def parse_routes(file):
     else:
         df['Van'] = df['Van'].astype(str).str.strip()
 
-    # Split multi-driver cells like "Name1|Name2|Name3" into separate rows
     df['Driver name'] = df['Driver name'].astype(str).str.split(r'\s*\|\s*')
     df = df.explode('Driver name').reset_index(drop=True)
     df = df[df['Driver name'].str.len() > 0]
@@ -86,7 +85,6 @@ def parse_routes(file):
 
 def parse_zonemap(file):
     z = pd.read_excel(file, sheet_name=0, header=None)
-    # Pre-scan: for each row, remember the most recent Time/Pad seen above
     rows, cols = z.shape
     time_above = [None] * rows
     pad_above  = [None] * rows
@@ -114,7 +112,6 @@ def parse_zonemap(file):
         pad_above[rr]  = last_pad
 
     out = []
-    # rows, cols = z.shape  # already defined above
     for r in range(rows):
         for c in range(cols):
             val = z.iat[r,c]
@@ -123,7 +120,6 @@ def parse_zonemap(file):
                 if not cx_m: 
                     continue
                 cx = cx_m.group(1)
-                # staging near the cell
                 staging = None
                 stg_col = None
                 for dc in [1,2,-1]:
@@ -136,8 +132,6 @@ def parse_zonemap(file):
                             break
                 pad=None; time=None
 
-                # 1) Find the staging cell and remember its column
-                # Already handled above; now, if not found, try expanded search as fallback (existing behavior in edge cases)
                 if stg_col is None:
                     for dc in [2,3,-2]:
                         cc2 = c+dc
@@ -148,10 +142,8 @@ def parse_zonemap(file):
                                 stg_col = cc2
                                 break
 
-                # 2) TIME: scan upwards in the STG column and its neighbors (time may sit next to the STG header row)
                 if stg_col is not None:
                     for rr in range(r-1, max(-1, r-30), -1):
-                        # Check STG column and nearby neighbors for time (time may sit next to the STG header row)
                         neighbor_cols = [stg_col, stg_col+1, stg_col-1, stg_col+2]
                         for cc2 in neighbor_cols:
                             if 0 <= cc2 < cols:
@@ -164,7 +156,6 @@ def parse_zonemap(file):
                         if time:
                             break
 
-                # 3) PAD: scan upwards in both the CX column and the STG column
                 for rr in range(r-1, max(-1, r-30), -1):
                     if pad is None:
                         txt1 = z.iat[rr, c]
@@ -181,7 +172,6 @@ def parse_zonemap(file):
                                 pad = p
                                 break
 
-                # 4) Fallback to pre-scan if either is still missing
                 if pad is None:
                     pad = pad_above[r]
                 if time is None:
@@ -195,7 +185,6 @@ def time_to_minutes(t):
     return int(m.group(1))*60 + int(m.group(2)) if m else 1_000_000
 
 def shift_time_str(t, delta_min=5):
-    """Add minutes to a time string like '11:10' or '11:10 am'. Returns 'H:MM' without am/pm."""
     if not isinstance(t, str):
         return t
     m = re.match(r"\s*(\d{1,2}):(\d{2})", t)
@@ -209,7 +198,6 @@ def shift_time_str(t, delta_min=5):
     return f"{new_h}:{new_m:02d}"
 
 def render_schedule(df, launcher=""):
-    # Layout
     left_pad_w = 200
     idx_col_w = 60
     name_w = 600
@@ -240,7 +228,6 @@ def render_schedule(df, launcher=""):
     except:
         font_title=font=font_bold=font_small_bold=None
 
-    # Header
     d.rectangle([0,0,width,header_h], fill=(255,255,255), outline=(0,0,0))
     d.text((16,16),"Launcher:", fill=(0,0,0), font=font_title)
     d.text((16,55), launcher or "", fill=(0,0,0), font=font_title)
@@ -266,7 +253,6 @@ def render_schedule(df, launcher=""):
     for (t, p, sub) in groups:
         col = pad_colors.get(int(p) if p==p else None, (220,220,220))
         block_h = len(sub)*(row_h+gap)
-        # left colored block
         d.rectangle([0,y,left_pad_w,y+block_h], fill=col, outline=(0,0,0))
         label = f"Pad {int(p)}\n{t}" if p==p else f"{t}"
         lines = label.split("\n")
@@ -280,11 +266,9 @@ def render_schedule(df, launcher=""):
             base_color = pad_colors.get(int(p), (220,220,220))
             row_color = tuple(min(255, int(c*1.75)) for c in base_color)
             
-            # number cell (centered)
             d.rectangle([left_pad_w, y, left_pad_w+idx_col_w, y+row_h], fill=row_color, outline=(0,0,0))
             w = d.textlength(str(idx), font=font_bold)
-            d.text((left_pad_w + (idx_col_w - w)/2, y+8), str(idx), fill=(0,0,0), font=font_bold)
-            
+            d.text((left_pad_w + (idx_col_w - w)/2, y+8), str(idx), fill=(0,0,0), font=font_bold)            
             
             # name
             d.rectangle([left_pad_w+idx_col_w, y, left_pad_w+idx_col_w+name_w, y+row_h], fill=row_color, outline=(0,0,0))
@@ -300,12 +284,12 @@ def render_schedule(df, launcher=""):
             d.rectangle([x, y, x+van_w, y+row_h], fill=row_color, outline=(0,0,0))
             d.text((x+8, y+8), "" if pd.isna(row['Van']) else str(row['Van']), fill=(0,0,0), font=font_bold)
 
-            # Staging (now before pictures)
+            # Staging
             x += van_w
             d.rectangle([x, y, x+stg_w, y+row_h], fill=row_color, outline=(0,0,0))
             d.text((x+8, y+8), str(row['Staging Location']), fill=(0,0,0), font=font_bold)
 
-            # Four empty subcolumns for Van Pictures (after staging)
+            # Van Pictures
             x = left_pad_w + idx_col_w + name_w + cx_w + van_w + stg_w  # starting x for pictures
             for _ in range(4):
                 d.rectangle([x, y, x+pic_w, y+row_h], fill=row_color, outline=(0,0,0))
@@ -327,24 +311,19 @@ with col2:
     zonemap_file = st.file_uploader("Upload ZoneMap file (.xlsx)", type=["xlsx"], key="zonemap")
 
 if routes_file and zonemap_file:
-    # Keep ALL CX routes; attach ZoneMap data when present
     routes = parse_routes(routes_file)
     zonemap = parse_zonemap(zonemap_file)
 
     df = routes.merge(zonemap, on='CX', how='left')
 
-    # Add 5 minutes to the parsed pad time for display & export
     df['Time'] = df['Time'].apply(shift_time_str)
 
-    # Fill missing Pad with a numeric placeholder so renderer continues to work
     df['Pad'] = df['Pad'].fillna(9)
 
-    # Robust sort: missing/invalid times go last (uses shifted times)
     df['__t'] = df['Time'].apply(lambda t: (int(t.split(':')[0])*60 + int(t.split(':')[1][:2])) if isinstance(t,str) and ':' in t else 999_999)
     df.sort_values(['__t','Pad','Driver name'], inplace=True)
     df.drop(columns='__t', inplace=True)
 
-    # Display/export copy with placeholders so groupby won't drop rows with missing time
     df_display = df.copy()
     df_display['Time'] = df_display['Time'].fillna('—')
 

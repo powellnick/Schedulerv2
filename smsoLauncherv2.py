@@ -148,14 +148,20 @@ def parse_zonemap(file):
                                 stg_col = cc2
                                 break
 
-                # 2) TIME: scan upwards only in the STG column (preferred source for time headers)
+                # 2) TIME: scan upwards in the STG column and its neighbors (time may sit next to the STG header row)
                 if stg_col is not None:
                     for rr in range(r-1, max(-1, r-30), -1):
-                        raw = z.iat[rr, stg_col]
-                        txt = _coerce_time_text(raw)
-                        t = extract_time(txt) or extract_time_range_start(txt)
-                        if t:
-                            time = t
+                        # Check STG column and nearby neighbors for time (time may sit next to the STG header row)
+                        neighbor_cols = [stg_col, stg_col+1, stg_col-1, stg_col+2]
+                        for cc2 in neighbor_cols:
+                            if 0 <= cc2 < cols:
+                                raw = z.iat[rr, cc2]
+                                txt = _coerce_time_text(raw)
+                                t = extract_time(txt) or extract_time_range_start(txt)
+                                if t:
+                                    time = t
+                                    break
+                        if time:
                             break
 
                 # 3) PAD: scan upwards in both the CX column and the STG column

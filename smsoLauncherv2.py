@@ -105,18 +105,24 @@ def parse_zonemap(file):
                         if isinstance(sval,str) and sval.startswith('STG'):
                             staging = sval.replace("STG.", "") if isinstance(sval, str) else sval; break
                 pad=None; time=None
-                for dr in range(1,10):
-                    rr = r-dr
-                    if rr < 0: break
-                    text = z.iat[rr,c]
-                    if isinstance(text,str):
+                # Search a small window above and around the SMSO cell
+                for rr in range(max(0, r-8), r):
+                    for cc in range(max(0, c-3), min(cols, c+4)):
+                        text = z.iat[rr, cc]
+                        if not isinstance(text, str):
+                            continue
                         if pad is None:
                             p = extract_pad(text)
-                            if p is not None: pad = p
+                            if p is not None:
+                                pad = p
                         if time is None:
                             t = extract_time(text) or extract_time_range_start(text)
-                            if t: time = t
-                    if pad and time: break
+                            if t:
+                                time = t
+                        if pad is not None and time is not None:
+                            break
+                    if pad is not None and time is not None:
+                        break
                 out.append({'CX':cx, 'Pad':pad, 'Time':time, 'Staging Location': staging})
     return pd.DataFrame(out).drop_duplicates(subset=['CX'])
 
@@ -258,7 +264,11 @@ if routes_file and zonemap_file:
     df.sort_values(['__t','Pad','Driver name'], inplace=True)
     df.drop(columns='__t', inplace=True)
 
-    img = render_schedule(df, launcher=launcher)
+    # Display/export copy with placeholders so groupby won't drop rows with missing time
+    df_display = df.copy()
+    df_display['Time'] = df_display['Time'].fillna('—')
+
+    img = render_schedule(df_display, launcher=launcher)
     st.image(img, caption="Final Schedule")
 
     png_buf = io.BytesIO()
@@ -271,7 +281,7 @@ if routes_file and zonemap_file:
         mime="image/png",
     )
 
-    xlsx_bytes = make_export_xlsx(df, launcher_name=launcher or "")
+    xlsx_bytes = make_export_xlsx(df_display, launcher_name=launcher or "")
     st.download_button(
         "Download Excel",
         data=xlsx_bytes,

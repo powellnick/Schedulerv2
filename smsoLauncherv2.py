@@ -13,6 +13,7 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
     out.insert(0, 'Order', out.index + 1)
     out.rename(columns={'CX': "CX #'s"}, inplace=True)
 
+    # Add empty columns for Van Pictures
     for col in ['Front', 'Back', 'D Side', 'P Side']:
         if col not in out.columns:
             out[col] = ''
@@ -23,6 +24,7 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         out.to_excel(writer, index=False, sheet_name='Schedule')
         ws = writer.sheets['Schedule']
 
+        # Insert a new top row and merge cells for Van Pictures header
         ws.insert_rows(1)
         ws.merge_cells('H1:K1')
         ws['H1'] = 'Van Pictures'
@@ -44,6 +46,9 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         }
         for col, w in widths.items():
             ws.column_dimensions[col].width = w
+
+        # meta = writer.book.create_sheet("Meta")
+        # meta['A1'] = "Launcher"; meta['B1'] = launcher_name
 
     buffer.seek(0)
     return buffer.getvalue()
@@ -70,13 +75,19 @@ def extract_pad(s):
 
 def parse_routes(file):
     df = pd.read_excel(file, sheet_name=0)
+    # Keep CX only
     df = df[df['Route code'].astype(str).str.startswith('CX', na=False)].copy()
     df['CX'] = df['Route code'].str.extract(r'(CX\d+)')
+    # Normalize Van as text (alphanumeric-safe)
     if 'Van' not in df.columns:
         df['Van'] = None
     else:
         df['Van'] = df['Van'].astype(str).str.strip()
-
+    # Split multi-driver cells like "Name1|Name2|Name3"
+    df['Driver name'] = df['Driver name'].astype(str).str.split(r'\s*\|\s*')
+    df = df.explode('Driver name').reset_index(drop=True)
+    # Remove accidental empties
+    df = df[df['Driver name'].str.len() > 0]
     return df[['CX','Driver name','Van']]
 
 def parse_zonemap(file):
@@ -123,7 +134,7 @@ def time_to_minutes(t):
 def render_schedule(df, launcher=""):
     # Layout
     left_pad_w = 200
-    idx_col_w = 60
+    idx_col_w = 60   # more space for index numbers
     name_w = 600
     cx_w = 90
     van_w = 80
@@ -135,6 +146,14 @@ def render_schedule(df, launcher=""):
 
     groups = []
     for (t,p), sub in df.groupby(['Time','Pad']):
+        try:
+            p_int = int(p)
+            col = pad_colors.get(p_int, (220,220,220))
+            pad_label = f"Pad {p_int}"
+        except Exception:
+            col = (235,235,235)
+            pad_label = str(p)
+        label = f"{pad_label}\n{t}"
         groups.append((t, p, sub.sort_values('Driver name')))
     groups.sort(key=lambda x: (time_to_minutes(x[0]), (x[1] if x[1] is not None else 9)))
 
@@ -159,6 +178,7 @@ def render_schedule(df, launcher=""):
     d.rectangle([left_pad_w,0,width, header_h], outline=(0,0,0))
     d.text((left_pad_w+idx_col_w+10, 16), "DRIVER NAME", fill=(0,0,0), font=font_title)
 
+    # mini header row for the three added columns
     x0 = left_pad_w+idx_col_w+name_w
     def cell(x1,w,label):
         d.rectangle([x1, 62, x1+w, header_h-8], fill=(255,235,150), outline=(0,0,0))
@@ -171,16 +191,22 @@ def render_schedule(df, launcher=""):
     cell(x0+cx_w+van_w+stg_w+2*pic_w, pic_w, "D Side")
     cell(x0+cx_w+van_w+stg_w+3*pic_w, pic_w, "P Side")
 
-    pad_colors = {1:(74,120,206), 2:(226,40,216), 3:(73,230,54)}
+    pad_colors = {1:(73,230,54), 2:(74,120,206), 3:(226,40,216)}
 
     y = header_h
     idx = 1
     for (t, p, sub) in groups:
-        col = pad_colors.get(int(p) if p==p else None, (220,220,220))
+        try:
+            p_int = int(p)
+            col = pad_colors.get(p_int, (220,220,220))
+            pad_label = f"Pad {p_int}"
+        except Exception:
+            col = (235,235,235)
+            pad_label = str(p)
+        label = f"{pad_label}\n{t}"
         block_h = len(sub)*(row_h+gap)
         # left colored block
         d.rectangle([0,y,left_pad_w,y+block_h], fill=col, outline=(0,0,0))
-        label = f"Pad {int(p)}\n{t}" if p==p else f"{t}"
         lines = label.split("\n")
         yy = y + block_h/2 - len(lines)*12
         for line in lines:
@@ -242,15 +268,29 @@ if routes_file and zonemap_file:
     routes = parse_routes(routes_file)
     zonemap = parse_zonemap(zonemap_file)
 
-    df = routes.merge(zonemap, on='CX', how='inner')
-    df = df.dropna(subset=['Pad','Time']).copy()
+    # Keep ALL CX routes; attach ZoneMap data when present
+    df = routes.merge(zonemap, on='CX', how='left')
 
-    # sorting by time then pad
-    df['__t'] = df['Time'].apply(lambda t: int(t.split(':')[0])*60 + int(t.split(':')[1]) if isinstance(t,str) and ':' in t else 999_999)
-    df.sort_values(['__t','Pad','Driver name'], inplace=True)
-    df.drop(columns='__t', inplace=True)
+    # Robust sort: missing Time/Pad go last
+    def _to_min(t):
+        if isinstance(t, str) and ':' in t:
+            try:
+                h, m = t.split(':', 1)
+                return int(h) * 60 + int(m[:2])
+            except Exception:
+                return 999_999
+        return 999_999
+    df['__t'] = df['Time'].apply(_to_min)
+    df['__pad'] = df['Pad'].fillna(99)
+    df.sort_values(['__t','__pad','Driver name'], inplace=True)
+    df.drop(columns=['__t','__pad'], inplace=True)
 
-    img = render_schedule(df, launcher=launcher)
+    # Display copy for renderer: keep unassigned instead of dropping rows
+    df_display = df.copy()
+    df_display['Time'] = df_display['Time'].fillna('—')
+    df_display['Pad']  = df_display['Pad'].fillna('Unassigned')
+
+    img = render_schedule(df_display, launcher=launcher)
     st.image(img, caption="Final Schedule")
 
     png_buf = io.BytesIO()

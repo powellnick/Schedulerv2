@@ -148,21 +148,35 @@ def parse_zonemap(file):
                                 stg_col = cc2
                                 break
 
-                # 2) TIME: scan upwards in the STG column and its neighbors (time may sit next to the STG header row)
+                # 2) TIME: find the 'Wave' header above the STG column, then take the time from the cell to its RIGHT
                 if stg_col is not None:
-                    for rr in range(r-1, max(-1, r-30), -1):
-                        # Check STG column and nearby neighbors for time (time may sit next to the STG header row)
-                        neighbor_cols = [stg_col, stg_col+1, stg_col-1, stg_col+2]
-                        for cc2 in neighbor_cols:
-                            if 0 <= cc2 < cols:
-                                raw = z.iat[rr, cc2]
-                                txt = _coerce_time_text(raw)
-                                t = extract_time(txt) or extract_time_range_start(txt)
-                                if t:
-                                    time = t
-                                    break
-                        if time:
+                    # search upward for a cell that contains 'Wave' in the STG column
+                    for rr in range(r-1, max(-1, r-40), -1):
+                        raw_wave = z.iat[rr, stg_col]
+                        wave_txt = _coerce_time_text(raw_wave)
+                        if isinstance(wave_txt, str) and re.search(r'\bWave\b', wave_txt, flags=re.I):
+                            # time should be immediately to the RIGHT of the Wave cell
+                            cand_cols = [stg_col + 1, stg_col + 2]  # try one step right, then two
+                            for cc2 in cand_cols:
+                                if 0 <= cc2 < cols:
+                                    raw_time = z.iat[rr, cc2]
+                                    t = extract_time(_coerce_time_text(raw_time))
+                                    if t:
+                                        time = t
+                                        break
                             break
+                    # fallback if 'Wave' not found for some reason: check the right-neighbor cells in the same rows
+                    if time is None:
+                        for rr in range(r-1, max(-1, r-30), -1):
+                            for cc2 in [stg_col + 1, stg_col + 2]:
+                                if 0 <= cc2 < cols:
+                                    raw = z.iat[rr, cc2]
+                                    t = extract_time(_coerce_time_text(raw))
+                                    if t:
+                                        time = t
+                                        break
+                            if time:
+                                break
 
                 # 3) PAD: scan upwards in both the CX column and the STG column
                 for rr in range(r-1, max(-1, r-30), -1):

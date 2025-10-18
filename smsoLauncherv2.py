@@ -86,8 +86,35 @@ def parse_routes(file):
 
 def parse_zonemap(file):
     z = pd.read_excel(file, sheet_name=0, header=None)
-    out = []
+    # Pre-scan: for each row, remember the most recent Time/Pad seen above
     rows, cols = z.shape
+    time_above = [None] * rows
+    pad_above  = [None] * rows
+
+    def _coerce_time_text(x):
+        if isinstance(x, str):
+            return x
+        if isinstance(x, (pd.Timestamp, )):
+            return x.strftime('%I:%M %p')
+        return str(x)
+
+    last_time = None
+    last_pad  = None
+    for rr in range(rows):
+        for cc in range(cols):
+            cell = z.iat[rr, cc]
+            txt = _coerce_time_text(cell)
+            t = extract_time(txt) or extract_time_range_start(txt)
+            if t:
+                last_time = t
+            p = extract_pad(txt)
+            if p is not None:
+                last_pad = p
+        time_above[rr] = last_time
+        pad_above[rr]  = last_pad
+
+    out = []
+    # rows, cols = z.shape  # already defined above
     for r in range(rows):
         for c in range(cols):
             val = z.iat[r,c]
@@ -123,6 +150,11 @@ def parse_zonemap(file):
                             break
                     if pad is not None and time is not None:
                         break
+                # Use fallback from pre-scan if needed
+                if pad is None:
+                    pad = pad_above[r]
+                if time is None:
+                    time = time_above[r]
                 out.append({'CX':cx, 'Pad':pad, 'Time':time, 'Staging Location': staging})
     return pd.DataFrame(out).drop_duplicates(subset=['CX'])
 

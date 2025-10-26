@@ -251,7 +251,7 @@ def render_schedule(df, launcher=""):
     pics_x_start = x0 + cx_w + van_w + stg_w
     pics_x_end   = pics_x_start + 4*pic_w
     date_w = d.textlength(date_str, font=font_small_bold)
-    d.text(((pics_x_start + pics_x_end)/2 - date_w/2, 40), date_str, fill=(0,0,0), font=font_small_bold)
+    d.text(((pics_x_start + pics_x_end)/2 - date_w/2, 25), date_str, fill=(0,0,0), font=font_small_bold)
 
     def cell(x1,w,label):
         d.rectangle([x1, 62, x1+w, header_h-8], fill=(255,235,150), outline=(0,0,0))

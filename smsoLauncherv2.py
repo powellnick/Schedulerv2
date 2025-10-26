@@ -3,12 +3,6 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 
-from datetime import datetime
-try:
-    from zoneinfo import ZoneInfo
-except Exception:
-    ZoneInfo = None
-
 st.set_page_config(page_title="SMSOLauncher", layout="wide")
 
 def make_export_xlsx(df, launcher_name: str) -> bytes:
@@ -239,17 +233,6 @@ def render_schedule(df, launcher=""):
     d.text((16,55), launcher or "", fill=(0,0,0), font=font_title)
     d.rectangle([left_pad_w,0,width, header_h], outline=(0,0,0))
     d.text((left_pad_w+idx_col_w+10, 16), "DRIVER NAME", fill=(0,0,0), font=font_title)
-
-    if ZoneInfo is not None:
-        _tz = ZoneInfo("America/Los_Angeles")
-        date_str = datetime.now(_tz).strftime("%m/%d/%Y")
-    else:
-        date_str = datetime.now().strftime("%m/%d/%Y")
-
-    pics_x_start = x0 + cx_w + van_w + stg_w
-    pics_x_end   = pics_x_start + 4*pic_w
-    date_w = d.textlength(date_str, font=font_small_bold)
-    d.text(((pics_x_start + pics_x_end)/2 - date_w/2, 40), date_str, fill=(0,0,0), font=font_small_bold)
 
     x0 = left_pad_w+idx_col_w+name_w
     def cell(x1,w,label):

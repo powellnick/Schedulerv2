@@ -335,7 +335,7 @@ if routes_file and zonemap_file:
 
     df = routes.merge(zonemap, on='CX', how='left')
 
-    df['Time'] = df['Time'].apply(shift_time_str)
+    df['Time'] = df['Time'].apply(lambda t: shift_time_str(t, -5))
 
     df['Pad'] = df['Pad'].fillna(9)
 

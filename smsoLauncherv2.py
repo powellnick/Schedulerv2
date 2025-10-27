@@ -242,7 +242,6 @@ def render_schedule(df, launcher=""):
     d.text((left_pad_w+idx_col_w+10, 16), "DRIVER NAME", fill=(0,0,0), font=font_title)
 
     x0 = left_pad_w+idx_col_w+name_w
-    # Current date (PST) centered above the Van Pictures subcolumns
     if ZoneInfo is not None:
         _tz = ZoneInfo("America/Los_Angeles")
         date_str = datetime.now(_tz).strftime("%m/%d/%Y")
@@ -309,10 +308,9 @@ def render_schedule(df, launcher=""):
             d.text((x+8, y+8), str(row['Staging Location']), fill=(0,0,0), font=font_bold)
 
             # Van Pictures
-            x = left_pad_w + idx_col_w + name_w + cx_w + van_w + stg_w  # starting x for pictures
+            x = left_pad_w + idx_col_w + name_w + cx_w + van_w + stg_w
             for _ in range(4):
                 d.rectangle([x, y, x+pic_w, y+row_h], fill=row_color, outline=(0,0,0))
-                # leave empty
                 x += pic_w
 
             y += row_h + gap

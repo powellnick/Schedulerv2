@@ -2,6 +2,7 @@ import re, io, math
 import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
+from collections import defaultdict
 
 from datetime import datetime
 try:
@@ -10,6 +11,16 @@ except Exception:
     ZoneInfo = None
 
 st.set_page_config(page_title="SMSOLauncher", layout="wide")
+
+
+# --- Helper to find transporter-id column ---
+def find_transporter_col(df: pd.DataFrame):
+    """Return the column name that looks like a transporter id column, or None."""
+    for col in df.columns:
+        key = str(col).strip().lower().replace(" ", "")
+        if key in ("transporterid", "transporter_id"):
+            return col
+    return None
 
 def make_export_xlsx(df, launcher_name: str) -> bytes:
     export_cols = [
@@ -87,7 +98,11 @@ def parse_routes(file):
     df = df.explode('Driver name').reset_index(drop=True)
     df = df[df['Driver name'].str.len() > 0]
 
-    return df[['CX','Driver name','Van']]
+    cols = ['CX', 'Driver name', 'Van']
+    tcol = find_transporter_col(df)
+    if tcol and tcol not in cols:
+        cols.append(tcol)
+    return df[cols]
 
 def parse_zonemap(file):
     z = pd.read_excel(file, sheet_name=0, header=None)
@@ -185,6 +200,163 @@ def parse_zonemap(file):
                 out.append({'CX':cx, 'Pad':pad, 'Time':time, 'Staging Location': staging})
     return pd.DataFrame(out).drop_duplicates(subset=['CX'])
 
+
+# --- Van memory helpers ---
+def parse_van_memory(file):
+    """Read van history into {transporter_id: [(van, freq), ...]} and return (memory, df, tid_col)."""
+    mem_df = pd.read_excel(file, sheet_name=0)
+    tid_col = find_transporter_col(mem_df)
+    if tid_col is None:
+        return {}, mem_df, None
+
+    # detect Van/Fq columns, e.g. 'Van 1', 'Fq 1'
+    van_cols = {}
+    fq_cols = {}
+    for col in mem_df.columns:
+        m_v = re.match(r'\s*van\s*(\d+)', str(col), flags=re.I)
+        if m_v:
+            van_cols[int(m_v.group(1))] = col
+        m_f = re.match(r'\s*fq\s*(\d+)', str(col), flags=re.I)
+        if m_f:
+            fq_cols[int(m_f.group(1))] = col
+
+    memory = {}
+    for _, row in mem_df.iterrows():
+        tid = row[tid_col]
+        if pd.isna(tid):
+            continue
+        tid = str(tid).strip()
+        prefs = []
+        for i in range(1, 6):
+            vcol = van_cols.get(i)
+            fcol = fq_cols.get(i)
+            if not vcol or not fcol:
+                continue
+            van = row.get(vcol)
+            freq = row.get(fcol)
+            if pd.isna(van) or pd.isna(freq):
+                continue
+            van = str(van).strip()
+            try:
+                freq = int(freq)
+            except Exception:
+                continue
+            if van:
+                prefs.append((van, freq))
+        if prefs:
+            agg = defaultdict(int)
+            for v, f in prefs:
+                agg[v] += f
+            memory[tid] = sorted(agg.items(), key=lambda x: -x[1])[:5]
+
+    return memory, mem_df, tid_col
+
+
+def update_van_memory(memory, routes_df, transporter_col):
+    """Increase frequency for each Van in routes_df, keyed by transporter id."""
+    if transporter_col is None or 'Van' not in routes_df.columns:
+        return memory
+
+    for _, row in routes_df.iterrows():
+        tid = row.get(transporter_col)
+        van = row.get('Van')
+        if pd.isna(tid) or van is None:
+            continue
+        tid = str(tid).strip()
+        van = str(van).strip()
+        if not van or van.lower() == 'nan':
+            continue
+
+        if tid not in memory:
+            memory[tid] = []
+        found = False
+        for i, (v, f) in enumerate(memory[tid]):
+            if v == van:
+                memory[tid][i] = (v, f + 1)
+                found = True
+                break
+        if not found:
+            memory[tid].append((van, 1))
+        memory[tid] = sorted(memory[tid], key=lambda x: -x[1])[:5]
+
+    return memory
+
+
+def assign_vans_from_memory(routes_df, transporter_col, memory):
+    """Auto-assign vans when the Van column is empty, using van frequency memory.
+
+    If multiple drivers share the same top van, the driver processed first keeps it and
+    later drivers fall back to their next most frequent van.
+    """
+    if transporter_col is None:
+        return routes_df
+
+    if 'Van' not in routes_df.columns:
+        routes_df['Van'] = pd.NA
+
+    assigned_vans = set()
+    for idx, row in routes_df.iterrows():
+        existing_van = row.get('Van')
+        if isinstance(existing_van, str) and existing_van.strip() and existing_van.lower() != 'nan':
+            assigned_vans.add(existing_van.strip())
+            continue
+
+        tid = row.get(transporter_col)
+        if pd.isna(tid):
+            continue
+        tid = str(tid).strip()
+        prefs = memory.get(tid)
+        if not prefs:
+            continue
+
+        chosen = None
+        for v, _f in prefs:
+            if v not in assigned_vans:
+                chosen = v
+                break
+        if chosen is None:
+            chosen = prefs[0][0]
+
+        routes_df.at[idx, 'Van'] = chosen
+        assigned_vans.add(chosen)
+
+    return routes_df
+
+
+def van_memory_to_df(memory, base_df, tid_col):
+    """Write memory back into the same Van/Fq columns we read from base_df."""
+    df = base_df.copy()
+
+    # ensure Van 1..5 / Fq 1..5 columns exist
+    for i in range(1, 6):
+        vcol = f"Van {i}"
+        fcol = f"Fq {i}"
+        if vcol not in df.columns:
+            df[vcol] = ""
+        if fcol not in df.columns:
+            df[fcol] = 0
+
+    for tid, prefs in memory.items():
+        mask = df[tid_col].astype(str) == str(tid)
+        if mask.any():
+            idx = df[mask].index[0]
+        else:
+            idx = len(df)
+            df.loc[idx, tid_col] = tid
+
+        for i in range(1, 6):
+            vcol = f"Van {i}"
+            fcol = f"Fq {i}"
+            if i <= len(prefs):
+                v, f = prefs[i-1]
+                df.loc[idx, vcol] = v
+                df.loc[idx, fcol] = f
+            else:
+                df.loc[idx, vcol] = ""
+                df.loc[idx, fcol] = 0
+
+    return df
+
 def time_to_minutes(t):
     if not isinstance(t,str): return 1_000_000
     m = re.match(r'(\d{1,2}):(\d{2})', t)
@@ -242,6 +414,7 @@ def render_schedule(df, launcher=""):
     d.text((left_pad_w+idx_col_w+10, 16), "DRIVER NAME", fill=(0,0,0), font=font_title)
 
     x0 = left_pad_w+idx_col_w+name_w
+    # Current date (PST) centered above the Van Pictures subcolumns
     if ZoneInfo is not None:
         _tz = ZoneInfo("America/Los_Angeles")
         date_str = datetime.now(_tz).strftime("%m/%d/%Y")
@@ -308,9 +481,10 @@ def render_schedule(df, launcher=""):
             d.text((x+8, y+8), str(row['Staging Location']), fill=(0,0,0), font=font_bold)
 
             # Van Pictures
-            x = left_pad_w + idx_col_w + name_w + cx_w + van_w + stg_w
+            x = left_pad_w + idx_col_w + name_w + cx_w + van_w + stg_w  # starting x for pictures
             for _ in range(4):
                 d.rectangle([x, y, x+pic_w, y+row_h], fill=row_color, outline=(0,0,0))
+                # leave empty
                 x += pic_w
 
             y += row_h + gap
@@ -321,19 +495,46 @@ def render_schedule(df, launcher=""):
 st.title("SMSO Schedule Builder")
 launcher = st.text_input("Launcher name", value="", placeholder="Enter launcher name")
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 with col1:
     routes_file = st.file_uploader("Upload Routes file (e.g., Routes_DWS4_... .xlsx)", type=["xlsx"], key="routes")
 with col2:
     zonemap_file = st.file_uploader("Upload ZoneMap file (.xlsx)", type=["xlsx"], key="zonemap")
+with col3:
+    van_hist_file = st.file_uploader("Upload Van history (optional)", type=["xlsx"], key="van_hist")
+
 
 if routes_file and zonemap_file:
     routes = parse_routes(routes_file)
     zonemap = parse_zonemap(zonemap_file)
 
+    # --- Van memory handling ---
+    transporter_col = find_transporter_col(routes)
+
+    if 'van_hist_file' in locals() and van_hist_file is not None:
+        van_memory, van_hist_df, van_tid_col = parse_van_memory(van_hist_file)
+    else:
+        van_memory, van_hist_df, van_tid_col = {}, None, None
+
+    has_any_van = (
+        'Van' in routes.columns
+        and routes['Van'].apply(lambda v: isinstance(v, str) and v.strip() != '' and str(v).lower() != 'nan').any()
+    )
+
+    if transporter_col is not None:
+        if has_any_van:
+            # learn from explicit Vans in routes
+            van_memory = update_van_memory(van_memory, routes, transporter_col)
+            # also fill in any missing Vans using memory
+            routes = assign_vans_from_memory(routes, transporter_col, van_memory)
+        else:
+            # no vans in routes => fully auto-assign
+            routes = assign_vans_from_memory(routes, transporter_col, van_memory)
+    # --- end van memory handling ---
+
     df = routes.merge(zonemap, on='CX', how='left')
 
-    df['Time'] = df['Time'].apply(lambda t: shift_time_str(t, -10))
+    df['Time'] = df['Time'].apply(lambda t: shift_time_str(t, -5))
 
     df['Pad'] = df['Pad'].fillna(9)
 
@@ -364,6 +565,20 @@ if routes_file and zonemap_file:
         file_name="schedule.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+    # Optional: export updated van history if a history file was uploaded
+    if van_hist_df is not None and van_tid_col is not None:
+        updated_hist_df = van_memory_to_df(van_memory, van_hist_df, van_tid_col)
+        hist_buf = io.BytesIO()
+        with pd.ExcelWriter(hist_buf, engine='openpyxl') as writer:
+            updated_hist_df.to_excel(writer, index=False, sheet_name='VanHistory')
+        hist_buf.seek(0)
+        st.download_button(
+            "Download updated Van history",
+            data=hist_buf.getvalue(),
+            file_name="van_history_updated.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
     #buf = io.BytesIO()
     #img.save(buf, format="PNG")
     #st.download_button("Download PNG", data=buf.getvalue(), file_name="schedule.png", mime="image/png")

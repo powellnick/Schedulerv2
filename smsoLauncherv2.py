@@ -462,6 +462,7 @@ def render_schedule(df, launcher=""):
 
     return img
 
+
 st.title("SMSO Schedule Builder")
 launcher = st.text_input("Launcher name", value="", placeholder="Enter launcher name")
 
@@ -470,6 +471,16 @@ with col1:
     routes_file = st.file_uploader("Upload Routes file (e.g., Routes_DWS4_... .xlsx)", type=["xlsx"], key="routes")
 with col2:
     zonemap_file = st.file_uploader("Upload ZoneMap file (.xlsx)", type=["xlsx"], key="zonemap")
+
+# Admin: clear van history cache with password confirmation
+with st.expander("Admin: Clear van history cache"):
+    clear_pw = st.text_input("Enter password to clear van history", type="password", key="clear_van_pw")
+    if st.button("Clear van history", key="clear_van_btn"):
+        if clear_pw == "SMSOclear":
+            st.session_state['van_memory'] = {}
+            st.success("Van history cache cleared.")
+        else:
+            st.error("Incorrect password.")
 
 
 if routes_file and zonemap_file:

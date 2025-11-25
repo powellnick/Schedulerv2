@@ -4,11 +4,99 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from collections import defaultdict
 
+import gspread
+from google.oauth2.service_account import Credentials
+
 from datetime import datetime
 try:
     from zoneinfo import ZoneInfo
 except Exception:
     ZoneInfo = None
+
+# --- Google Sheets config and helpers for van memory persistence ---
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+VAN_HISTORY_SHEET_NAME = "SMSO_VanHistory"  # must match your Google Sheet name
+
+def get_gs_client():
+    """Authorize a Google Sheets client using the service account in Streamlit secrets."""
+    try:
+        info = st.secrets["gcp_service_account"]
+    except Exception:
+        # No secrets configured; van history persistence disabled
+        return None
+    try:
+        creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+        return gspread.authorize(creds)
+    except Exception:
+        # If auth fails, silently fall back to in-memory only
+        return None
+
+def load_van_memory_from_sheet():
+    """Load van_memory from the Google Sheet, returning a dict {tid: {van: freq, ...}}."""
+    client = get_gs_client()
+    if client is None:
+        return {}
+
+    try:
+        sh = client.open(VAN_HISTORY_SHEET_NAME)
+        ws = sh.sheet1
+        data = ws.get_all_records()
+    except Exception:
+        return {}
+
+    if not data:
+        return {}
+
+    df_hist = pd.DataFrame(data)
+    if "Transporter Id" not in df_hist.columns:
+        return {}
+
+    memory = {}
+    for _, row in df_hist.iterrows():
+        tid = row.get("Transporter Id")
+        if pd.isna(tid):
+            continue
+        tid = str(tid).strip()
+        vans = {}
+        for i in range(1, 6):
+            vcol = f"Van {i}"
+            fcol = f"Fq {i}"
+            van = row.get(vcol)
+            freq = row.get(fcol)
+            if not isinstance(van, str) or not van.strip():
+                continue
+            try:
+                freq = int(freq)
+            except Exception:
+                continue
+            v_clean = van.strip()
+            if not v_clean:
+                continue
+            vans[v_clean] = vans.get(v_clean, 0) + freq
+        if vans:
+            memory[tid] = vans
+    return memory
+
+def save_van_memory_to_sheet(memory, routes_df, transporter_col):
+    """Persist van_memory into the Google Sheet using van_memory_to_df output."""
+    client = get_gs_client()
+    if client is None:
+        return
+
+    try:
+        sh = client.open(VAN_HISTORY_SHEET_NAME)
+        ws = sh.sheet1
+    except Exception:
+        # Sheet not found or other issue; do not crash the app
+        return
+
+    df_hist = van_memory_to_df(memory, routes_df, transporter_col)
+    # Clear existing content and write header + rows
+    ws.clear()
+    if df_hist.empty:
+        return
+    rows = [df_hist.columns.tolist()] + df_hist.astype(str).values.tolist()
+    ws.update(rows)
 
 st.set_page_config(page_title="SMSOLauncher", layout="wide")
 
@@ -489,7 +577,8 @@ if routes_file and zonemap_file:
 
     # --- Van memory based on transporter id & Vans in the routes file ---
     if 'van_memory' not in st.session_state:
-        st.session_state['van_memory'] = {}
+        # Seed from Google Sheets on first use, if available
+        st.session_state['van_memory'] = load_van_memory_from_sheet()
     van_memory = st.session_state['van_memory']
 
     transporter_col = find_transporter_col(routes)
@@ -506,6 +595,8 @@ if routes_file and zonemap_file:
             # fill any missing Vans using memory
             routes = assign_vans_from_memory(routes, transporter_col, van_memory)
             st.session_state['van_memory'] = van_memory
+            # persist updated memory to Google Sheets
+            save_van_memory_to_sheet(van_memory, routes, transporter_col)
         else:
             # no vans in routes => fully auto-assign from previously learned memory
             routes = assign_vans_from_memory(routes, transporter_col, van_memory)

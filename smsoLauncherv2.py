@@ -22,13 +22,13 @@ def get_gs_client():
     try:
         info = st.secrets["gcp_service_account"]
     except Exception:
-        # No secrets configured; van history persistence disabled
+        st.error("No [gcp_service_account] block found in Streamlit secrets.")
         return None
     try:
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
         return gspread.authorize(creds)
-    except Exception:
-        # If auth fails, silently fall back to in-memory only
+    except Exception as e:
+        st.error(f"Error creating Google Sheets client: {e}")
         return None
 
 def load_van_memory_from_sheet():
@@ -81,22 +81,28 @@ def save_van_memory_to_sheet(memory, routes_df, transporter_col):
     """Persist van_memory into the Google Sheet using van_memory_to_df output."""
     client = get_gs_client()
     if client is None:
+        st.warning("Van history not saved: no Google Sheets client.")
         return
 
     try:
         sh = client.open(VAN_HISTORY_SHEET_NAME)
         ws = sh.sheet1
-    except Exception:
-        # Sheet not found or other issue; do not crash the app
+    except Exception as e:
+        st.error(f"Error opening sheet '{VAN_HISTORY_SHEET_NAME}': {e}")
         return
 
     df_hist = van_memory_to_df(memory, routes_df, transporter_col)
-    # Clear existing content and write header + rows
     ws.clear()
     if df_hist.empty:
+        st.warning("Van history DataFrame is empty; nothing to write.")
         return
+
     rows = [df_hist.columns.tolist()] + df_hist.astype(str).values.tolist()
-    ws.update(rows)
+    try:
+        ws.update(rows)
+        st.success(f"Van history saved to Google Sheet ({len(df_hist)} rows).")
+    except Exception as e:
+        st.error(f"Error updating sheet: {e}")
 
 st.set_page_config(page_title="SMSOLauncher", layout="wide")
 

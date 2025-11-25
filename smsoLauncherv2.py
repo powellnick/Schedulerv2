@@ -13,24 +13,16 @@ try:
 except Exception:
     ZoneInfo = None
 
-# --- Google Sheets config and helpers for van memory persistence ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
-VAN_HISTORY_SHEET_NAME = "SMSO_VanHistory"  # must match your Google Sheet name
+VAN_HISTORY_SHEET_NAME = "SMSO_VanHistory"
 
-# --- Van normalization and sheet reset helpers ---
 def clean_van_value(v):
-    """Normalize van values so we never get '1.0'-style strings.
-
-    - If value is numeric and an integer (e.g., 1.0), convert to '1'.
-    - Otherwise, convert to stripped string.
-    """
     if pd.isna(v):
         return None
     s = str(v).strip()
-    # strip trailing .0 from pure numeric vans
     m = re.fullmatch(r"(\d+)\.0", s)
     if m:
         s = m.group(1)
@@ -48,7 +40,6 @@ def reset_van_history_sheet():
         st.error(f"Error opening sheet '{VAN_HISTORY_SHEET_NAME}' to reset: {e}")
         return
 
-    # Clear everything and rewrite header row
     headers = [
         'Transporter Id', 'Driver name',
         'Van 1', 'Fq 1',
@@ -125,7 +116,6 @@ def load_van_memory_from_sheet():
     return memory
 
 def save_van_memory_to_sheet(memory, routes_df, transporter_col):
-    """Persist van_memory into the Google Sheet using van_memory_to_df output."""
     client = get_gs_client()
     if client is None:
         st.warning("Van history not saved: no Google Sheets client.")
@@ -216,7 +206,6 @@ def extract_pad(s):
     if m: return int(m.group(1))
     return None
 
-# --- Helper to find transporter id column ---
 def find_transporter_col(df: pd.DataFrame):
     """Return the column name that looks like a transporter id column, or None."""
     for col in df.columns:
@@ -340,12 +329,7 @@ def parse_zonemap(file):
                 out.append({'CX':cx, 'Pad':pad, 'Time':time, 'Staging Location': staging})
     return pd.DataFrame(out).drop_duplicates(subset=['CX'])
 
-# --- Van memory helpers ---
 def update_van_memory(memory, routes_df, transporter_col):
-    """Increase frequency for each Van in routes_df, keyed by transporter id.
-
-    memory structure: { tid: {van: freq, ...}, ... }
-    """
     if transporter_col is None or 'Van' not in routes_df.columns:
         return memory or {}
 
@@ -370,11 +354,6 @@ def update_van_memory(memory, routes_df, transporter_col):
 
 
 def assign_vans_from_memory(routes_df, transporter_col, memory):
-    """Auto-assign vans when Van column is empty, using van frequency memory.
-
-    If multiple drivers share the same top van, the first processed keeps it and
-    later drivers fall back to their next most frequent van (up to 5 vans).
-    """
     if transporter_col is None or not memory:
         return routes_df
 
@@ -382,7 +361,6 @@ def assign_vans_from_memory(routes_df, transporter_col, memory):
         routes_df['Van'] = pd.NA
 
     assigned_vans = set()
-    # mark existing vans as taken
     for _, row in routes_df.iterrows():
         v = row.get('Van')
         if v is None or (isinstance(v, float) and pd.isna(v)):
@@ -396,7 +374,6 @@ def assign_vans_from_memory(routes_df, transporter_col, memory):
         if existing_van is not None and not (isinstance(existing_van, float) and pd.isna(existing_van)):
             v_str = clean_van_value(existing_van)
             if v_str:
-                # already has a van; ensure it's marked as taken
                 assigned_vans.add(v_str)
                 continue
 
@@ -408,7 +385,6 @@ def assign_vans_from_memory(routes_df, transporter_col, memory):
         if not prefs_dict:
             continue
 
-        # sort vans by freq desc, keep top 5
         prefs = sorted(prefs_dict.items(), key=lambda x: -x[1])[:5]
 
         chosen = None
@@ -426,10 +402,6 @@ def assign_vans_from_memory(routes_df, transporter_col, memory):
 
 
 def van_memory_to_df(memory, routes_df, transporter_col):
-    """Build a DataFrame representing van history from memory and the latest routes.
-
-    Columns: Transporter Id, Driver name, Van 1/Fq 1 ... Van 5/Fq 5
-    """
     rows = []
     if not memory or transporter_col is None:
         return pd.DataFrame(columns=[
@@ -437,7 +409,6 @@ def van_memory_to_df(memory, routes_df, transporter_col):
             'Van 1', 'Fq 1', 'Van 2', 'Fq 2', 'Van 3', 'Fq 3', 'Van 4', 'Fq 4', 'Van 5', 'Fq 5'
         ])
 
-    # map transporter -> a sample driver name from latest routes
     name_map = {}
     if transporter_col in routes_df.columns and 'Driver name' in routes_df.columns:
         for _, row in routes_df.iterrows():
@@ -525,7 +496,6 @@ def render_schedule(df, launcher=""):
     d.text((left_pad_w+idx_col_w+10, 16), "DRIVER NAME", fill=(0,0,0), font=font_title)
 
     x0 = left_pad_w+idx_col_w+name_w
-    # Current date (PST) centered above the Van Pictures subcolumns
     if ZoneInfo is not None:
         _tz = ZoneInfo("America/Los_Angeles")
         date_str = datetime.now(_tz).strftime("%m/%d/%Y")
@@ -595,7 +565,6 @@ def render_schedule(df, launcher=""):
             x = left_pad_w + idx_col_w + name_w + cx_w + van_w + stg_w  # starting x for pictures
             for _ in range(4):
                 d.rectangle([x, y, x+pic_w, y+row_h], fill=row_color, outline=(0,0,0))
-                # leave empty
                 x += pic_w
 
             y += row_h + gap
@@ -613,7 +582,6 @@ with col1:
 with col2:
     zonemap_file = st.file_uploader("Upload ZoneMap file (.xlsx)", type=["xlsx"], key="zonemap")
 
-# Admin: clear van history cache with password confirmation
 with st.expander("Clear van history cache"):
     clear_pw = st.text_input("Enter password to clear van history", type="password", key="clear_van_pw")
     if st.button("Clear van history", key="clear_van_btn"):
@@ -628,9 +596,7 @@ if routes_file and zonemap_file:
     routes = parse_routes(routes_file)
     zonemap = parse_zonemap(zonemap_file)
 
-    # --- Van memory based on transporter id & Vans in the routes file ---
     if 'van_memory' not in st.session_state:
-        # Seed from Google Sheets on first use, if available
         st.session_state['van_memory'] = load_van_memory_from_sheet()
     van_memory = st.session_state['van_memory']
 
@@ -643,17 +609,12 @@ if routes_file and zonemap_file:
 
     if transporter_col is not None:
         if has_any_van:
-            # learn from explicit Vans in routes
             van_memory = update_van_memory(van_memory, routes, transporter_col)
-            # fill any missing Vans using memory
             routes = assign_vans_from_memory(routes, transporter_col, van_memory)
             st.session_state['van_memory'] = van_memory
-            # persist updated memory to Google Sheets
             save_van_memory_to_sheet(van_memory, routes, transporter_col)
         else:
-            # no vans in routes => fully auto-assign from previously learned memory
             routes = assign_vans_from_memory(routes, transporter_col, van_memory)
-    # --- end van memory handling ---
 
     df = routes.merge(zonemap, on='CX', how='left')
 
@@ -689,7 +650,6 @@ if routes_file and zonemap_file:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-    # Download auto-built van history based on all learned assignments
     if 'van_memory' in st.session_state and st.session_state['van_memory']:
         transporter_col = find_transporter_col(routes)
         if transporter_col is not None:

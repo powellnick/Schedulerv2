@@ -620,7 +620,6 @@ with st.expander("Admin: Clear van history cache"):
         if clear_pw == "SMSOclear":
             st.session_state['van_memory'] = {}
             reset_van_history_sheet()
-            st.success("Van history cache cleared.")
         else:
             st.error("Incorrect password.")
 

@@ -29,7 +29,6 @@ def clean_van_value(v):
     return s or None
 
 def reset_van_history_sheet():
-    """Clear the van history Google Sheet but keep the header row."""
     client = get_gs_client()
     if client is None:
         return
@@ -56,7 +55,6 @@ def reset_van_history_sheet():
         st.error(f"Error clearing van history sheet: {e}")
 
 def get_gs_client():
-    """Authorize a Google Sheets client using the service account in Streamlit secrets."""
     try:
         info = st.secrets["gcp_service_account"]
     except Exception:
@@ -70,7 +68,6 @@ def get_gs_client():
         return None
 
 def load_van_memory_from_sheet():
-    """Load van_memory from the Google Sheet, returning a dict {tid: {van: freq, ...}}."""
     client = get_gs_client()
     if client is None:
         return {}

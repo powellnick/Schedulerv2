@@ -14,7 +14,10 @@ except Exception:
     ZoneInfo = None
 
 # --- Google Sheets config and helpers for van memory persistence ---
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 VAN_HISTORY_SHEET_NAME = "SMSO_VanHistory"  # must match your Google Sheet name
 
 def get_gs_client():

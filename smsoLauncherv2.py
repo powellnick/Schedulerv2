@@ -614,7 +614,7 @@ with col2:
     zonemap_file = st.file_uploader("Upload ZoneMap file (.xlsx)", type=["xlsx"], key="zonemap")
 
 # Admin: clear van history cache with password confirmation
-with st.expander("Admin: Clear van history cache"):
+with st.expander("Clear van history cache"):
     clear_pw = st.text_input("Enter password to clear van history", type="password", key="clear_van_pw")
     if st.button("Clear van history", key="clear_van_btn"):
         if clear_pw == "SMSOclear":

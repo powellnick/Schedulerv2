@@ -60,7 +60,7 @@ def reset_van_history_sheet():
     try:
         ws.clear()
         ws.update('A1', [headers])
-        st.success("Van history Google Sheet cleared (headers preserved).")
+        st.success("Van history Google Sheet cleared")
     except Exception as e:
         st.error(f"Error clearing van history sheet: {e}")
 

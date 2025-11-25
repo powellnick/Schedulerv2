@@ -350,9 +350,12 @@ def update_van_memory(memory, routes_df, transporter_col):
     return memory
 
 
-def assign_vans_from_memory(routes_df, transporter_col, memory):
+def assign_vans_from_memory(routes_df, transporter_col, memory, down_vans=None):
     if transporter_col is None or not memory:
         return routes_df
+
+    if down_vans is None:
+        down_vans = set()
 
     if 'Van' not in routes_df.columns:
         routes_df['Van'] = pd.NA
@@ -386,11 +389,15 @@ def assign_vans_from_memory(routes_df, transporter_col, memory):
 
         chosen = None
         for v, _f in prefs:
+            # skip vans that are marked down or already assigned
+            if v in down_vans:
+                continue
             if v not in assigned_vans:
                 chosen = v
                 break
+        # If all preferred vans are either down or already used, leave Van unassigned
         if chosen is None:
-            chosen = prefs[0][0]
+            continue
 
         routes_df.at[idx, 'Van'] = chosen
         assigned_vans.add(chosen)
@@ -579,6 +586,8 @@ with col1:
 with col2:
     zonemap_file = st.file_uploader("Upload ZoneMap file (.xlsx)", type=["xlsx"], key="zonemap")
 
+downvans_file = st.file_uploader("Upload Down Vans file (optional, .xlsx)", type=["xlsx"], key="downvans")
+
 with st.expander("Clear van history cache"):
     clear_pw = st.text_input("Enter password to clear van history", type="password", key="clear_van_pw")
     if st.button("Clear van history", key="clear_van_btn"):
@@ -592,6 +601,26 @@ with st.expander("Clear van history cache"):
 if routes_file and zonemap_file:
     routes = parse_routes(routes_file)
     zonemap = parse_zonemap(zonemap_file)
+
+    down_vans_set = set()
+    if downvans_file is not None:
+        try:
+            dv_df = pd.read_excel(downvans_file)
+            van_col = None
+            for col in dv_df.columns:
+                key = str(col).strip().lower()
+                if key in ("van", "van#", "van #", "vans"):
+                    van_col = col
+                    break
+            if van_col is None and len(dv_df.columns) > 0:
+                van_col = dv_df.columns[0]
+            if van_col is not None:
+                for v in dv_df[van_col]:
+                    v_clean = clean_van_value(v)
+                    if v_clean:
+                        down_vans_set.add(v_clean)
+        except Exception as e:
+            st.error(f"Could not read Down Vans file: {e}")
 
     if 'van_memory' not in st.session_state:
         st.session_state['van_memory'] = load_van_memory_from_sheet()
@@ -607,11 +636,11 @@ if routes_file and zonemap_file:
     if transporter_col is not None:
         if has_any_van:
             van_memory = update_van_memory(van_memory, routes, transporter_col)
-            routes = assign_vans_from_memory(routes, transporter_col, van_memory)
+            routes = assign_vans_from_memory(routes, transporter_col, van_memory, down_vans_set)
             st.session_state['van_memory'] = van_memory
             save_van_memory_to_sheet(van_memory, routes, transporter_col)
         else:
-            routes = assign_vans_from_memory(routes, transporter_col, van_memory)
+            routes = assign_vans_from_memory(routes, transporter_col, van_memory, down_vans_set)
 
     df = routes.merge(zonemap, on='CX', how='left')
 
@@ -661,8 +690,3 @@ if routes_file and zonemap_file:
                 file_name="van_history.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-    #buf = io.BytesIO()
-    #img.save(buf, format="PNG")
-    #st.download_button("Download PNG", data=buf.getvalue(), file_name="schedule.png", mime="image/png")
-#else:
-    #st.info("Upload both the **Routes** and **ZoneMap** files to generate the schedule.")

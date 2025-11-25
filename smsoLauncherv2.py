@@ -14,11 +14,52 @@ except Exception:
     ZoneInfo = None
 
 # --- Google Sheets config and helpers for van memory persistence ---
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 VAN_HISTORY_SHEET_NAME = "SMSO_VanHistory"  # must match your Google Sheet name
+
+# --- Van normalization and sheet reset helpers ---
+def clean_van_value(v):
+    """Normalize van values so we never get '1.0'-style strings.
+
+    - If value is numeric and an integer (e.g., 1.0), convert to '1'.
+    - Otherwise, convert to stripped string.
+    """
+    if pd.isna(v):
+        return None
+    s = str(v).strip()
+    # strip trailing .0 from pure numeric vans
+    m = re.fullmatch(r"(\d+)\.0", s)
+    if m:
+        s = m.group(1)
+    return s or None
+
+def reset_van_history_sheet():
+    """Clear the van history Google Sheet but keep the header row."""
+    client = get_gs_client()
+    if client is None:
+        return
+    try:
+        sh = client.open(VAN_HISTORY_SHEET_NAME)
+        ws = sh.sheet1
+    except Exception as e:
+        st.error(f"Error opening sheet '{VAN_HISTORY_SHEET_NAME}' to reset: {e}")
+        return
+
+    # Clear everything and rewrite header row
+    headers = [
+        'Transporter Id', 'Driver name',
+        'Van 1', 'Fq 1',
+        'Van 2', 'Fq 2',
+        'Van 3', 'Fq 3',
+        'Van 4', 'Fq 4',
+        'Van 5', 'Fq 5',
+    ]
+    try:
+        ws.clear()
+        ws.update('A1', [headers])
+        st.success("Van history Google Sheet cleared (headers preserved).")
+    except Exception as e:
+        st.error(f"Error clearing van history sheet: {e}")
 
 def get_gs_client():
     """Authorize a Google Sheets client using the service account in Streamlit secrets."""
@@ -66,14 +107,14 @@ def load_van_memory_from_sheet():
             fcol = f"Fq {i}"
             van = row.get(vcol)
             freq = row.get(fcol)
-            if not isinstance(van, str) or not van.strip():
+            if pd.isna(van):
+                continue
+            v_clean = clean_van_value(van)
+            if not v_clean:
                 continue
             try:
                 freq = int(freq)
             except Exception:
-                continue
-            v_clean = van.strip()
-            if not v_clean:
                 continue
             vans[v_clean] = vans.get(v_clean, 0) + freq
         if vans:
@@ -188,7 +229,7 @@ def parse_routes(file):
     if 'Van' not in df.columns:
         df['Van'] = None
     else:
-        df['Van'] = df['Van'].astype(str).str.strip()
+        df['Van'] = df['Van'].apply(clean_van_value)
 
     df['Driver name'] = df['Driver name'].astype(str).str.split(r'\s*\|\s*')
     df = df.explode('Driver name').reset_index(drop=True)
@@ -314,13 +355,13 @@ def update_van_memory(memory, routes_df, transporter_col):
         if pd.isna(tid) or van is None:
             continue
         tid = str(tid).strip()
-        van = str(van).strip()
-        if not van or van.lower() == 'nan':
+        van_clean = clean_van_value(van)
+        if not van_clean:
             continue
 
         if tid not in memory:
             memory[tid] = {}
-        memory[tid][van] = memory[tid].get(van, 0) + 1
+        memory[tid][van_clean] = memory[tid].get(van_clean, 0) + 1
 
     return memory
 
@@ -343,15 +384,15 @@ def assign_vans_from_memory(routes_df, transporter_col, memory):
         v = row.get('Van')
         if v is None or (isinstance(v, float) and pd.isna(v)):
             continue
-        v_str = str(v).strip()
-        if v_str and v_str.lower() != 'nan':
+        v_str = clean_van_value(v)
+        if v_str:
             assigned_vans.add(v_str)
 
     for idx, row in routes_df.iterrows():
         existing_van = row.get('Van')
         if existing_van is not None and not (isinstance(existing_van, float) and pd.isna(existing_van)):
-            v_str = str(existing_van).strip()
-            if v_str and v_str.lower() != 'nan':
+            v_str = clean_van_value(existing_van)
+            if v_str:
                 # already has a van; ensure it's marked as taken
                 assigned_vans.add(v_str)
                 continue
@@ -575,6 +616,7 @@ with st.expander("Admin: Clear van history cache"):
     if st.button("Clear van history", key="clear_van_btn"):
         if clear_pw == "SMSOclear":
             st.session_state['van_memory'] = {}
+            reset_van_history_sheet()
             st.success("Van history cache cleared.")
         else:
             st.error("Incorrect password.")

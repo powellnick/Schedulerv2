@@ -529,8 +529,9 @@ def render_schedule(df, launcher=""):
     min_block_rows = 3
     for (t, p, sub) in groups:
         col = pad_colors.get(int(p) if p==p else None, (220,220,220))
-        block_h = max(len(sub)*(row_h+gap), min_block_rows*(row_h+gap))
-        d.rectangle([0,y,left_pad_w,y+block_h], fill=col, outline=(0,0,0))
+        block_rows = max(len(sub), min_block_rows)
+        block_h = block_rows * (row_h + gap)
+        d.rectangle([0, y, left_pad_w, y + block_h], fill=col, outline=(0,0,0))
         label = f"Pad {int(p)}\n{t}" if p==p else f"{t}"
         lines = label.split("\n")
         yy = y + block_h/2 - len(lines)*12
@@ -539,41 +540,44 @@ def render_schedule(df, launcher=""):
             d.text((left_pad_w/2 - w/2, yy), line, fill=(0,0,0), font=font_bold)
             yy += 24
 
+        row_y = y
         for _, row in sub.iterrows():
             base_color = pad_colors.get(int(p), (220,220,220))
             row_color = tuple(int(c + (255 - c) * 0.6) for c in base_color)
             
-            d.rectangle([left_pad_w, y, left_pad_w+idx_col_w, y+row_h], fill=row_color, outline=(0,0,0))
+            d.rectangle([left_pad_w, row_y, left_pad_w+idx_col_w, row_y+row_h], fill=row_color, outline=(0,0,0))
             w = d.textlength(str(idx), font=font_bold)
-            d.text((left_pad_w + (idx_col_w - w)/2, y+8), str(idx), fill=(0,0,0), font=font_bold)            
+            d.text((left_pad_w + (idx_col_w - w)/2, row_y+8), str(idx), fill=(0,0,0), font=font_bold)            
             
             # name
-            d.rectangle([left_pad_w+idx_col_w, y, left_pad_w+idx_col_w+name_w, y+row_h], fill=row_color, outline=(0,0,0))
-            d.text((left_pad_w+idx_col_w+8, y+8), str(row['Driver name']), fill=(0,0,0), font=font)
+            d.rectangle([left_pad_w+idx_col_w, row_y, left_pad_w+idx_col_w+name_w, row_y+row_h], fill=row_color, outline=(0,0,0))
+            d.text((left_pad_w+idx_col_w+8, row_y+8), str(row['Driver name']), fill=(0,0,0), font=font)
 
             # CX
             x = left_pad_w+idx_col_w+name_w
-            d.rectangle([x, y, x+cx_w, y+row_h], fill=row_color, outline=(0,0,0))
-            d.text((x+8, y+8), str(row['CX']).replace('CX',''), fill=(0,0,0), font=font_bold)
+            d.rectangle([x, row_y, x+cx_w, row_y+row_h], fill=row_color, outline=(0,0,0))
+            d.text((x+8, row_y+8), str(row['CX']).replace('CX',''), fill=(0,0,0), font=font_bold)
 
             # Van
             x += cx_w
-            d.rectangle([x, y, x+van_w, y+row_h], fill=row_color, outline=(0,0,0))
-            d.text((x+8, y+8), "" if pd.isna(row['Van']) else str(row['Van']), fill=(0,0,0), font=font_bold)
+            d.rectangle([x, row_y, x+van_w, row_y+row_h], fill=row_color, outline=(0,0,0))
+            d.text((x+8, row_y+8), "" if pd.isna(row['Van']) else str(row['Van']), fill=(0,0,0), font=font_bold)
 
             # Staging
             x += van_w
-            d.rectangle([x, y, x+stg_w, y+row_h], fill=row_color, outline=(0,0,0))
-            d.text((x+8, y+8), str(row['Staging Location']), fill=(0,0,0), font=font_bold)
+            d.rectangle([x, row_y, x+stg_w, row_y+row_h], fill=row_color, outline=(0,0,0))
+            d.text((x+8, row_y+8), str(row['Staging Location']), fill=(0,0,0), font=font_bold)
 
             # Van Pictures
             x = left_pad_w + idx_col_w + name_w + cx_w + van_w + stg_w  # starting x for pictures
             for _ in range(4):
-                d.rectangle([x, y, x+pic_w, y+row_h], fill=row_color, outline=(0,0,0))
+                d.rectangle([x, row_y, x+pic_w, row_y+row_h], fill=row_color, outline=(0,0,0))
                 x += pic_w
 
-            y += row_h + gap
+            row_y += row_h + gap
             idx += 1
+
+        y += block_h
 
     return img
 

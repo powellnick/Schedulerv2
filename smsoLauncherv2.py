@@ -526,9 +526,10 @@ def render_schedule(df, launcher=""):
 
     y = header_h
     idx = 1
+    min_block_rows = 3
     for (t, p, sub) in groups:
         col = pad_colors.get(int(p) if p==p else None, (220,220,220))
-        block_h = len(sub)*(row_h+gap)
+        block_h = max(len(sub)*(row_h+gap), min_block_rows*(row_h+gap))
         d.rectangle([0,y,left_pad_w,y+block_h], fill=col, outline=(0,0,0))
         label = f"Pad {int(p)}\n{t}" if p==p else f"{t}"
         lines = label.split("\n")

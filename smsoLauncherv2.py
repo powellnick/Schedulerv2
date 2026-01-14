@@ -184,34 +184,46 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
     return buffer.getvalue()
 
 
-# Helper: load an edited Schedule export and normalize columns
 def load_edited_schedule(file):
+    """Load an edited Schedule export (from Download Excel) and normalize columns.
+
+    The exported schedule includes an extra top row for the merged "Van Pictures" header,
+    so we attempt reading with header=0 first, then fall back to header=1.
     """
-    Load an edited Schedule export (from Download Excel) and normalize columns
-    so it can be rendered directly.
-    """
+    def _try_read(header_row: int):
+        return pd.read_excel(file, sheet_name=0, header=header_row)
+
     try:
-        df = pd.read_excel(file, sheet_name=0)
+        df = _try_read(0)
     except Exception as e:
         st.error(f"Could not read edited schedule file: {e}")
         return None
 
-    # Expected columns from export
     expected = {
-        'Pad','Time','Driver name',"CX #'s",'Van','Staging Location',
-        'Front','Back','D Side','P Side'
+        'Pad', 'Time', 'Driver name', "CX #'s", 'Van', 'Staging Location',
+        'Front', 'Back', 'D Side', 'P Side'
     }
+
+    if not expected.issubset(set(map(str, df.columns))):
+        try:
+            df = _try_read(1)
+        except Exception as e:
+            st.error(f"Could not read edited schedule file with header=1: {e}")
+            return None
+
+    df.columns = [str(c).strip() for c in df.columns]
+
     missing = expected - set(df.columns)
     if missing:
         st.error(f"Edited schedule is missing columns: {', '.join(sorted(missing))}")
         return None
 
-    # Normalize column names to internal names
     df = df.rename(columns={"CX #'s": "CX"})
-    df['Van'] = df['Van'].apply(clean_van_value)
 
-    # Ensure required columns exist
-    for col in ['Pad','Time','Driver name','CX','Van','Staging Location']:
+    if 'Van' in df.columns:
+        df['Van'] = df['Van'].apply(clean_van_value)
+
+    for col in ['Pad', 'Time', 'Driver name', 'CX', 'Van', 'Staging Location']:
         if col not in df.columns:
             df[col] = None
 
@@ -553,7 +565,6 @@ def render_schedule(df, launcher=""):
         groups.append((t, p, sub.sort_values('Driver name')))
     groups.sort(key=lambda x: (time_to_minutes(x[0]), (x[1] if x[1] is not None else 9)))
 
-    # If a pad has only one driver, make that row a bit taller so the pad label fits nicely.
     single_row_h = int(row_h * 1.6)
     total_rows = sum(len(g[2]) for g in groups)
     singletons = sum(1 for _, _, sub in groups if len(sub) == 1)
@@ -702,6 +713,21 @@ if edited_schedule_file is not None:
     df_display = load_edited_schedule(edited_schedule_file)
     if df_display is None:
         st.stop()
+
+    down_vans_set = read_van_list_file(downvans_file)
+    available_vans_set = read_van_list_file(availablevans_file)
+
+    if 'Van' in df_display.columns:
+        def _van_allowed(v):
+            v = clean_van_value(v)
+            if not v:
+                return None
+            if v in down_vans_set:
+                return None
+            if available_vans_set and v not in available_vans_set:
+                return None
+            return v
+        df_display['Van'] = df_display['Van'].apply(_van_allowed)
 
     img = render_schedule(df_display, launcher=launcher)
     st.image(img, caption="Final Schedule")

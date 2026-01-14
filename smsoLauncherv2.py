@@ -183,6 +183,40 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
     buffer.seek(0)
     return buffer.getvalue()
 
+
+# Helper: load an edited Schedule export and normalize columns
+def load_edited_schedule(file):
+    """
+    Load an edited Schedule export (from Download Excel) and normalize columns
+    so it can be rendered directly.
+    """
+    try:
+        df = pd.read_excel(file, sheet_name=0)
+    except Exception as e:
+        st.error(f"Could not read edited schedule file: {e}")
+        return None
+
+    # Expected columns from export
+    expected = {
+        'Pad','Time','Driver name',"CX #'s",'Van','Staging Location',
+        'Front','Back','D Side','P Side'
+    }
+    missing = expected - set(df.columns)
+    if missing:
+        st.error(f"Edited schedule is missing columns: {', '.join(sorted(missing))}")
+        return None
+
+    # Normalize column names to internal names
+    df = df.rename(columns={"CX #'s": "CX"})
+    df['Van'] = df['Van'].apply(clean_van_value)
+
+    # Ensure required columns exist
+    for col in ['Pad','Time','Driver name','CX','Van','Staging Location']:
+        if col not in df.columns:
+            df[col] = None
+
+    return df
+
 def extract_time_range_start(s):
     m = re.search(r'(\d{1,2}:\d{2})', s or '')
     return m.group(1) if m else None
@@ -573,7 +607,6 @@ def render_schedule(df, launcher=""):
     y = header_h
     idx = 1
     for (t, p, sub) in groups:
-        # Use a taller row if this pad has only one driver
         cur_row_h = single_row_h if len(sub) == 1 else row_h
 
         if len(sub) == 1:
@@ -649,6 +682,12 @@ with col3:
 with col4:
     availablevans_file = st.file_uploader("Upload Vans Available file (optional, .xlsx)", type=["xlsx"], key="availablevans")
 
+edited_schedule_file = st.file_uploader(
+    "Re-upload edited Schedule (from Download Excel)",
+    type=["xlsx"],
+    key="edited_schedule"
+)
+
 with st.expander("Clear van history cache"):
     clear_pw = st.text_input("Enter password to clear van history", type="password", key="clear_van_pw")
     if st.button("Clear van history", key="clear_van_btn"):
@@ -659,7 +698,33 @@ with st.expander("Clear van history cache"):
             st.error("Incorrect password.")
 
 
-if routes_file and zonemap_file:
+if edited_schedule_file is not None:
+    df_display = load_edited_schedule(edited_schedule_file)
+    if df_display is None:
+        st.stop()
+
+    img = render_schedule(df_display, launcher=launcher)
+    st.image(img, caption="Final Schedule")
+
+    png_buf = io.BytesIO()
+    img.save(png_buf, format="PNG")
+    png_buf.seek(0)
+    st.download_button(
+        "Download PNG",
+        data=png_buf.getvalue(),
+        file_name="schedule.png",
+        mime="image/png",
+    )
+
+    xlsx_bytes = make_export_xlsx(df_display, launcher_name=launcher or "")
+    st.download_button(
+        "Download Excel",
+        data=xlsx_bytes,
+        file_name="schedule.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+elif routes_file and zonemap_file:
     routes = parse_routes(routes_file)
     zonemap = parse_zonemap(zonemap_file)
 

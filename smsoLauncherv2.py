@@ -145,7 +145,10 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         'Order', 'Driver name', "CX #'s", 'Van', 'Staging Location', 'Pad', 'Time'
     ]
     out = df.copy().reset_index(drop=True)
-    out.insert(0, 'Order', out.index + 1)
+    if 'Order' in out.columns:
+        out['Order'] = range(1, len(out) + 1)
+    else:
+        out.insert(0, 'Order', out.index + 1)
     out.rename(columns={'CX': "CX #'s"}, inplace=True)
 
     for col in ['Front', 'Back', 'D Side', 'P Side']:

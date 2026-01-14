@@ -643,8 +643,11 @@ with col1:
 with col2:
     zonemap_file = st.file_uploader("Upload ZoneMap file (.xlsx)", type=["xlsx"], key="zonemap")
 
-downvans_file = st.file_uploader("Upload Down Vans file (optional, .xlsx)", type=["xlsx"], key="downvans")
-availablevans_file = st.file_uploader("Upload Vans Available file (optional, .xlsx)", type=["xlsx"], key="availablevans")
+col3, col4 = st.columns(2)
+with col3:    
+    downvans_file = st.file_uploader("Upload Down Vans file (optional, .xlsx)", type=["xlsx"], key="downvans")
+with col4:
+    availablevans_file = st.file_uploader("Upload Vans Available file (optional, .xlsx)", type=["xlsx"], key="availablevans")
 
 with st.expander("Clear van history cache"):
     clear_pw = st.text_input("Enter password to clear van history", type="password", key="clear_van_pw")

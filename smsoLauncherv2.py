@@ -211,6 +211,33 @@ def find_transporter_col(df: pd.DataFrame):
             return col
     return None
 
+def read_van_list_file(uploaded_file):
+    """Read a DownVans/AvailableVans-style xlsx and return a set of cleaned van strings."""
+    if uploaded_file is None:
+        return set()
+    try:
+        df = pd.read_excel(uploaded_file)
+    except Exception as e:
+        st.error(f"Could not read vans file: {e}")
+        return set()
+
+    van_col = None
+    for col in df.columns:
+        key = str(col).strip().lower()
+        if key in ("van", "van#", "van #", "vans"):
+            van_col = col
+            break
+    if van_col is None and len(df.columns) > 0:
+        van_col = df.columns[0]
+
+    vans = set()
+    if van_col is not None:
+        for v in df[van_col]:
+            v_clean = clean_van_value(v)
+            if v_clean:
+                vans.add(v_clean)
+    return vans
+
 def parse_routes(file):
     df = pd.read_excel(file, sheet_name=0)
     df = df[df['Route code'].astype(str).str.startswith('CX', na=False)].copy()
@@ -350,24 +377,38 @@ def update_van_memory(memory, routes_df, transporter_col):
     return memory
 
 
-def assign_vans_from_memory(routes_df, transporter_col, memory, down_vans=None):
+def assign_vans_from_memory(routes_df, transporter_col, memory, down_vans=None, available_vans=None):
     if transporter_col is None or not memory:
         return routes_df
 
     if down_vans is None:
         down_vans = set()
+    if available_vans is None:
+        available_vans = set()
 
     if 'Van' not in routes_df.columns:
         routes_df['Van'] = pd.NA
 
     assigned_vans = set()
-    for _, row in routes_df.iterrows():
+
+    for i, row in routes_df.iterrows():
         v = row.get('Van')
         if v is None or (isinstance(v, float) and pd.isna(v)):
             continue
+
         v_str = clean_van_value(v)
-        if v_str:
-            assigned_vans.add(v_str)
+        if not v_str:
+            continue
+
+        if v_str in down_vans:
+            routes_df.at[i, 'Van'] = pd.NA
+            continue
+
+        if available_vans and v_str not in available_vans:
+            routes_df.at[i, 'Van'] = pd.NA
+            continue
+
+        assigned_vans.add(v_str)
 
     for idx, row in routes_df.iterrows():
         existing_van = row.get('Van')
@@ -389,13 +430,13 @@ def assign_vans_from_memory(routes_df, transporter_col, memory, down_vans=None):
 
         chosen = None
         for v, _f in prefs:
-            # skip vans that are marked down or already assigned
             if v in down_vans:
+                continue
+            if available_vans and v not in available_vans:
                 continue
             if v not in assigned_vans:
                 chosen = v
                 break
-        # If all preferred vans are either down or already used, leave Van unassigned
         if chosen is None:
             continue
 
@@ -603,6 +644,7 @@ with col2:
     zonemap_file = st.file_uploader("Upload ZoneMap file (.xlsx)", type=["xlsx"], key="zonemap")
 
 downvans_file = st.file_uploader("Upload Down Vans file (optional, .xlsx)", type=["xlsx"], key="downvans")
+availablevans_file = st.file_uploader("Upload Vans Available file (optional, .xlsx)", type=["xlsx"], key="availablevans")
 
 with st.expander("Clear van history cache"):
     clear_pw = st.text_input("Enter password to clear van history", type="password", key="clear_van_pw")
@@ -618,25 +660,8 @@ if routes_file and zonemap_file:
     routes = parse_routes(routes_file)
     zonemap = parse_zonemap(zonemap_file)
 
-    down_vans_set = set()
-    if downvans_file is not None:
-        try:
-            dv_df = pd.read_excel(downvans_file)
-            van_col = None
-            for col in dv_df.columns:
-                key = str(col).strip().lower()
-                if key in ("van", "van#", "van #", "vans"):
-                    van_col = col
-                    break
-            if van_col is None and len(dv_df.columns) > 0:
-                van_col = dv_df.columns[0]
-            if van_col is not None:
-                for v in dv_df[van_col]:
-                    v_clean = clean_van_value(v)
-                    if v_clean:
-                        down_vans_set.add(v_clean)
-        except Exception as e:
-            st.error(f"Could not read Down Vans file: {e}")
+    down_vans_set = read_van_list_file(downvans_file)
+    available_vans_set = read_van_list_file(availablevans_file)
 
     if 'van_memory' not in st.session_state:
         st.session_state['van_memory'] = load_van_memory_from_sheet()
@@ -644,23 +669,20 @@ if routes_file and zonemap_file:
 
     transporter_col = find_transporter_col(routes)
 
-    has_any_van = (
-        'Van' in routes.columns
-        and routes['Van'].astype(str).str.strip().ne('').any()
-    )
+    has_any_van = 'Van' in routes.columns and routes['Van'].notna().any()
 
     if transporter_col is not None:
         if has_any_van:
             van_memory = update_van_memory(van_memory, routes, transporter_col)
-            routes = assign_vans_from_memory(routes, transporter_col, van_memory, down_vans_set)
+            routes = assign_vans_from_memory(routes, transporter_col, van_memory, down_vans_set, available_vans_set)
             st.session_state['van_memory'] = van_memory
             save_van_memory_to_sheet(van_memory, routes, transporter_col)
         else:
-            routes = assign_vans_from_memory(routes, transporter_col, van_memory, down_vans_set)
+            routes = assign_vans_from_memory(routes, transporter_col, van_memory, down_vans_set, available_vans_set)
 
     df = routes.merge(zonemap, on='CX', how='left')
 
-    df['Time'] = df['Time'].apply(lambda t: shift_time_str(t, -10))
+    df['Time'] = df['Time'].apply(lambda t: shift_time_str(t, -5))
 
     df['Pad'] = df['Pad'].fillna(9)
 

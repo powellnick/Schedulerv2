@@ -426,12 +426,10 @@ def update_van_memory(memory, routes_df, transporter_col):
     return memory
 
 
-def assign_vans_from_memory(routes_df, transporter_col, memory, down_vans=None, available_vans=None):
+def assign_vans_from_memory(routes_df, transporter_col, memory, available_vans=None):
     if transporter_col is None or not memory:
         return routes_df
 
-    if down_vans is None:
-        down_vans = set()
     if available_vans is None:
         available_vans = set()
 
@@ -447,10 +445,6 @@ def assign_vans_from_memory(routes_df, transporter_col, memory, down_vans=None, 
 
         v_str = clean_van_value(v)
         if not v_str:
-            continue
-
-        if v_str in down_vans:
-            routes_df.at[i, 'Van'] = pd.NA
             continue
 
         if available_vans and v_str not in available_vans:
@@ -479,8 +473,6 @@ def assign_vans_from_memory(routes_df, transporter_col, memory, down_vans=None, 
 
         chosen = None
         for v, _f in prefs:
-            if v in down_vans:
-                continue
             if available_vans and v not in available_vans:
                 continue
             if v not in assigned_vans:
@@ -715,15 +707,12 @@ if edited_schedule_file is not None:
     if df_display is None:
         st.stop()
 
-    down_vans_set = read_van_list_file(downvans_file)
     available_vans_set = read_van_list_file(availablevans_file)
 
     if 'Van' in df_display.columns:
         def _van_allowed(v):
             v = clean_van_value(v)
             if not v:
-                return None
-            if v in down_vans_set:
                 return None
             if available_vans_set and v not in available_vans_set:
                 return None
@@ -755,7 +744,6 @@ elif routes_file and zonemap_file:
     routes = parse_routes(routes_file)
     zonemap = parse_zonemap(zonemap_file)
 
-    down_vans_set = read_van_list_file(downvans_file)
     available_vans_set = read_van_list_file(availablevans_file)
 
     if 'van_memory' not in st.session_state:
@@ -769,12 +757,11 @@ elif routes_file and zonemap_file:
     if transporter_col is not None:
         if has_any_van:
             van_memory = update_van_memory(van_memory, routes, transporter_col)
-            routes = assign_vans_from_memory(routes, transporter_col, van_memory, down_vans_set, available_vans_set)
+            routes = assign_vans_from_memory(routes, transporter_col, van_memory, available_vans_set)            
             st.session_state['van_memory'] = van_memory
             save_van_memory_to_sheet(van_memory, routes, transporter_col)
         else:
-            routes = assign_vans_from_memory(routes, transporter_col, van_memory, down_vans_set, available_vans_set)
-
+            routes = assign_vans_from_memory(routes, transporter_col, van_memory, available_vans_set)
     df = routes.merge(zonemap, on='CX', how='left')
 
     df['Time'] = df['Time'].apply(lambda t: shift_time_str(t, -5))

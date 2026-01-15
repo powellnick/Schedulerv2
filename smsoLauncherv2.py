@@ -722,6 +722,18 @@ if edited_schedule_file is not None:
     img = render_schedule(df_display, launcher=launcher)
     st.image(img, caption="Final Schedule")
 
+    if available_vans_set:
+        assigned = set(
+            clean_van_value(v)
+            for v in df_display.get('Van', pd.Series([], dtype=object)).tolist()
+            if clean_van_value(v)
+        )
+        remaining = sorted(v for v in available_vans_set if v not in assigned)
+        if remaining:
+            st.info("Available vans not assigned in this schedule: " + ", ".join(remaining))
+        else:
+            st.success("All vans from the Vans Available file were assigned in this schedule.")
+
     png_buf = io.BytesIO()
     img.save(png_buf, format="PNG")
     png_buf.seek(0)
@@ -739,19 +751,6 @@ if edited_schedule_file is not None:
         file_name="schedule.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-
-    # Show remaining available vans that were not assigned in this schedule
-    if available_vans_set:
-        assigned = set(
-            clean_van_value(v)
-            for v in df_display.get('Van', pd.Series([], dtype=object)).tolist()
-            if clean_van_value(v)
-        )
-        remaining = sorted(v for v in available_vans_set if v not in assigned)
-        if remaining:
-            st.info("Available vans not assigned in this schedule: " + ", ".join(remaining))
-        else:
-            st.success("All vans from the Vans Available file were assigned in this schedule.")
 
 elif routes_file and zonemap_file:
     routes = parse_routes(routes_file)
@@ -791,6 +790,18 @@ elif routes_file and zonemap_file:
     img = render_schedule(df_display, launcher=launcher)
     st.image(img, caption="Final Schedule")
 
+    if available_vans_set:
+        assigned = set(
+            clean_van_value(v)
+            for v in df_display.get('Van', pd.Series([], dtype=object)).tolist()
+            if clean_van_value(v)
+        )
+        remaining = sorted(v for v in available_vans_set if v not in assigned)
+        if remaining:
+            st.info("Available vans not assigned in this schedule: " + ", ".join(remaining))
+        else:
+            st.success("All vans from the Vans Available file were assigned in this schedule.")
+
     png_buf = io.BytesIO()
     img.save(png_buf, format="PNG")
     png_buf.seek(0)
@@ -808,18 +819,6 @@ elif routes_file and zonemap_file:
         file_name="schedule.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-
-    if available_vans_set:
-        assigned = set(
-            clean_van_value(v)
-            for v in df_display.get('Van', pd.Series([], dtype=object)).tolist()
-            if clean_van_value(v)
-        )
-        remaining = sorted(v for v in available_vans_set if v not in assigned)
-        if remaining:
-            st.info("Available vans not assigned in this schedule: " + ", ".join(remaining))
-        else:
-            st.success("All vans from the Vans Available file were assigned in this schedule.")
 
     if 'van_memory' in st.session_state and st.session_state['van_memory']:
         transporter_col = find_transporter_col(routes)

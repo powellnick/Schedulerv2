@@ -240,11 +240,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
 
 
 def load_edited_schedule(file):
-    """Load an edited Schedule export (from Download Excel) and normalize columns.
-
-    The exported schedule includes an extra top row for the merged "Van Pictures" header,
-    so we attempt reading with header=0 first, then fall back to header=1.
-    """
     def _try_read(header_row: int):
         return pd.read_excel(file, sheet_name=0, header=header_row)
 
@@ -286,7 +281,6 @@ def load_edited_schedule(file):
 
 
 def load_edited_meta(file):
-    """Read the embedded Meta sheet (if present) from an exported schedule."""
     try:
         meta = pd.read_excel(file, sheet_name='Meta')
     except Exception:
@@ -325,15 +319,22 @@ def extract_pad(s):
     return None
 
 def find_transporter_col(df: pd.DataFrame):
-    """Return the column name that looks like a transporter id column, or None."""
     for col in df.columns:
         key = str(col).strip().lower().replace(" ", "")
         if key in ("transporterid", "transporter_id"):
             return col
     return None
 
+def split_transporter_ids(tid_val):
+    if tid_val is None or (isinstance(tid_val, float) and pd.isna(tid_val)):
+        return []
+    s = str(tid_val).strip()
+    if not s:
+        return []
+    parts = [p.strip() for p in s.split('|')]
+    return [p for p in parts if p]
+
 def read_van_list_file(uploaded_file):
-    """Read a DownVans/AvailableVans-style xlsx and return a set of cleaned van strings."""
     if uploaded_file is None:
         return set()
     try:
@@ -482,18 +483,23 @@ def update_van_memory(memory, routes_df, transporter_col):
         memory = {}
 
     for _, row in routes_df.iterrows():
-        tid = row.get(transporter_col)
+        tid_val = row.get(transporter_col)
         van = row.get('Van')
-        if pd.isna(tid) or van is None:
+        if (tid_val is None or (isinstance(tid_val, float) and pd.isna(tid_val))) or van is None:
             continue
-        tid = str(tid).strip()
+
         van_clean = clean_van_value(van)
         if not van_clean:
             continue
 
-        if tid not in memory:
-            memory[tid] = {}
-        memory[tid][van_clean] = memory[tid].get(van_clean, 0) + 1
+        tids = split_transporter_ids(tid_val)
+        if not tids:
+            continue
+
+        for tid in tids:
+            if tid not in memory:
+                memory[tid] = {}
+            memory[tid][van_clean] = memory[tid].get(van_clean, 0) + 1
 
     return memory
 
@@ -533,15 +539,26 @@ def assign_vans_from_memory(routes_df, transporter_col, memory, available_vans=N
                 assigned_vans.add(v_str)
                 continue
 
-        tid = row.get(transporter_col)
-        if pd.isna(tid):
-            continue
-        tid = str(tid).strip()
-        prefs_dict = memory.get(tid)
-        if not prefs_dict:
+        tid_val = row.get(transporter_col)
+        if tid_val is None or (isinstance(tid_val, float) and pd.isna(tid_val)):
             continue
 
-        prefs = sorted(prefs_dict.items(), key=lambda x: -x[1])[:5]
+        tids = split_transporter_ids(tid_val)
+        if not tids:
+            continue
+
+        combined = {}
+        for tid in tids:
+            prefs_dict = memory.get(tid)
+            if not prefs_dict:
+                continue
+            for v, f in prefs_dict.items():
+                combined[v] = combined.get(v, 0) + int(f)
+
+        if not combined:
+            continue
+
+        prefs = sorted(combined.items(), key=lambda x: -x[1])[:5]
 
         chosen = None
         for v, _f in prefs:
@@ -806,8 +823,9 @@ if edited_schedule_file is not None:
 
         updated_count = 0
         for _, r in merged.iterrows():
-            tid = str(r.get('Transporter Id', '')).strip()
-            if not tid:
+            tid_val = r.get('Transporter Id', '')
+            tids = split_transporter_ids(tid_val)
+            if not tids:
                 continue
 
             new_van = clean_van_value(r.get('Van'))
@@ -821,9 +839,10 @@ if edited_schedule_file is not None:
             if available_vans_set and new_van not in available_vans_set:
                 continue
 
-            if tid not in van_memory:
-                van_memory[tid] = {}
-            van_memory[tid][new_van] = van_memory[tid].get(new_van, 0) + 1
+            for tid in tids:
+                if tid not in van_memory:
+                    van_memory[tid] = {}
+                van_memory[tid][new_van] = van_memory[tid].get(new_van, 0) + 1
             updated_count += 1
 
         if updated_count > 0:

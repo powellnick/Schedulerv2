@@ -515,6 +515,13 @@ def assign_vans_from_memory(routes_df, transporter_col, memory, available_vans=N
         routes_df['Van'] = pd.NA
 
     assigned_vans = set()
+    helper_van_for_group = {}
+
+    def _helper_key_from_tid_val(tid_val):
+        tids = split_transporter_ids(tid_val)
+        if len(tids) <= 1:
+            return None
+        return "|".join(sorted(tids))
 
     for i, row in routes_df.iterrows():
         v = row.get('Van')
@@ -523,21 +530,30 @@ def assign_vans_from_memory(routes_df, transporter_col, memory, available_vans=N
 
         v_str = clean_van_value(v)
         if not v_str:
+            routes_df.at[i, 'Van'] = pd.NA
             continue
 
         if available_vans and v_str not in available_vans:
             routes_df.at[i, 'Van'] = pd.NA
             continue
 
-        assigned_vans.add(v_str)
+        hk = _helper_key_from_tid_val(row.get(transporter_col))
+        if hk:
+            helper_van_for_group[hk] = v_str
+        else:
+            assigned_vans.add(v_str)
 
     for idx, row in routes_df.iterrows():
         existing_van = row.get('Van')
         if existing_van is not None and not (isinstance(existing_van, float) and pd.isna(existing_van)):
             v_str = clean_van_value(existing_van)
             if v_str:
-                assigned_vans.add(v_str)
-                continue
+                hk = _helper_key_from_tid_val(row.get(transporter_col))
+                if hk:
+                    helper_van_for_group[hk] = v_str
+                else:
+                    assigned_vans.add(v_str)
+            continue
 
         tid_val = row.get(transporter_col)
         if tid_val is None or (isinstance(tid_val, float) and pd.isna(tid_val)):
@@ -545,6 +561,14 @@ def assign_vans_from_memory(routes_df, transporter_col, memory, available_vans=N
 
         tids = split_transporter_ids(tid_val)
         if not tids:
+            continue
+
+        hk = _helper_key_from_tid_val(tid_val)
+
+        if hk and hk in helper_van_for_group:
+            chosen = helper_van_for_group[hk]
+            if (not available_vans) or (chosen in available_vans):
+                routes_df.at[idx, 'Van'] = chosen
             continue
 
         combined = {}
@@ -567,11 +591,16 @@ def assign_vans_from_memory(routes_df, transporter_col, memory, available_vans=N
             if v not in assigned_vans:
                 chosen = v
                 break
+
         if chosen is None:
             continue
 
         routes_df.at[idx, 'Van'] = chosen
-        assigned_vans.add(chosen)
+
+        if hk:
+            helper_van_for_group[hk] = chosen
+        else:
+            assigned_vans.add(chosen)
 
     return routes_df
 

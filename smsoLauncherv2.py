@@ -183,6 +183,36 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         for col, w in widths.items():
             ws.column_dimensions[col].width = w
 
+        # --- Meta sheet (for re-upload detection of manual van edits) ---
+        # We store the Transporter Id (if present), CX, and the van value at time of export.
+        # This lets us update van history ONLY for vans that were changed/fill-in by the user.
+        transporter_col = None
+        for _col in df.columns:
+            _key = str(_col).strip().lower().replace(" ", "")
+            if _key in ("transporterid", "transporter_id"):
+                transporter_col = _col
+                break
+
+        meta_cols = {}
+        if 'CX' in df.columns:
+            meta_cols['CX'] = df['CX'].astype(str)
+        else:
+            # Fallback: if CX isn't present, still write an empty column
+            meta_cols['CX'] = pd.Series(["" for _ in range(len(df))])
+
+        if transporter_col is not None:
+            meta_cols['Transporter Id'] = df[transporter_col].astype(str)
+        else:
+            meta_cols['Transporter Id'] = pd.Series(["" for _ in range(len(df))])
+
+        if 'Van' in df.columns:
+            meta_cols['Van_original'] = df['Van'].apply(clean_van_value).fillna('')
+        else:
+            meta_cols['Van_original'] = pd.Series(["" for _ in range(len(df))])
+
+        meta_df = pd.DataFrame(meta_cols)[['Transporter Id', 'CX', 'Van_original']]
+        meta_df.to_excel(writer, index=False, sheet_name='Meta')
+
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -231,6 +261,28 @@ def load_edited_schedule(file):
             df[col] = None
 
     return df
+
+
+# Helper to read the embedded Meta sheet from an exported schedule
+def load_edited_meta(file):
+    """Read the embedded Meta sheet (if present) from an exported schedule."""
+    try:
+        meta = pd.read_excel(file, sheet_name='Meta')
+    except Exception:
+        return None
+
+    meta.columns = [str(c).strip() for c in meta.columns]
+    needed = {'Transporter Id', 'CX', 'Van_original'}
+    if not needed.issubset(set(meta.columns)):
+        return None
+
+    meta = meta[['Transporter Id', 'CX', 'Van_original']].copy()
+    meta['Transporter Id'] = meta['Transporter Id'].astype(str).str.strip()
+    meta['CX'] = meta['CX'].astype(str).str.strip()
+    meta['Van_original'] = meta['Van_original'].apply(clean_van_value).fillna('')
+    # Drop obviously empty rows
+    meta = meta[(meta['Transporter Id'] != '') & (meta['CX'] != '')]
+    return meta
 
 def extract_time_range_start(s):
     m = re.search(r'(\d{1,2}:\d{2})', s or '')
@@ -718,6 +770,52 @@ if edited_schedule_file is not None:
                 return None
             return v
         df_display['Van'] = df_display['Van'].apply(_van_allowed)
+
+    meta = load_edited_meta(edited_schedule_file)
+    if meta is not None:
+        if 'van_memory' not in st.session_state:
+            st.session_state['van_memory'] = load_van_memory_from_sheet()
+        van_memory = st.session_state['van_memory']
+
+        cur = df_display[['CX', 'Driver name', 'Van']].copy()
+        cur['CX'] = cur['CX'].astype(str).str.strip()
+        cur['Van'] = cur['Van'].apply(clean_van_value).fillna('')
+
+        merged = cur.merge(meta, on='CX', how='left')
+        merged = merged[merged['Transporter Id'].notna()]
+
+        updated_count = 0
+        for _, r in merged.iterrows():
+            tid = str(r.get('Transporter Id', '')).strip()
+            if not tid:
+                continue
+
+            new_van = clean_van_value(r.get('Van'))
+            old_van = clean_van_value(r.get('Van_original'))
+
+            if not new_van:
+                continue
+            if old_van and new_van == old_van:
+                continue
+
+            if available_vans_set and new_van not in available_vans_set:
+                continue
+
+            if tid not in van_memory:
+                van_memory[tid] = {}
+            van_memory[tid][new_van] = van_memory[tid].get(new_van, 0) + 1
+            updated_count += 1
+
+        if updated_count > 0:
+            st.session_state['van_memory'] = van_memory
+            routes_like = merged[['Transporter Id', 'Driver name']].dropna().copy()
+            routes_like = routes_like.rename(columns={'Transporter Id': 'Transporter Id', 'Driver name': 'Driver name'})
+            save_van_memory_to_sheet(van_memory, routes_like, 'Transporter Id')
+            st.success(f"Updated van history from {updated_count} manual van edit(s) in the re-uploaded schedule.")
+        else:
+            st.info("No manual van edits detected in the re-uploaded schedule; van history unchanged.")
+    else:
+        st.info("Re-uploaded schedule has no Meta sheet; van history was not updated.")
 
     img = render_schedule(df_display, launcher=launcher)
     st.image(img, caption="Final Schedule")

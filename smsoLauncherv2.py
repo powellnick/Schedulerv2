@@ -138,7 +138,28 @@ def save_van_memory_to_sheet(memory, routes_df, transporter_col):
     except Exception as e:
         st.error(f"Error updating sheet: {e}")
 
+
 st.set_page_config(page_title="SMSOLauncher", layout="wide")
+
+SITE_PASSWORD = st.secrets.get("app_password", "")
+
+if "site_authed" not in st.session_state:
+    st.session_state["site_authed"] = False
+
+if SITE_PASSWORD:
+    if not st.session_state["site_authed"]:
+        st.title("SMSO Schedule Builder")
+        st.caption("Enter the site password to continue.")
+        pw = st.text_input("Password", type="password")
+        if st.button("Enter"):
+            if pw == SITE_PASSWORD:
+                st.session_state["site_authed"] = True
+                st.rerun()
+            else:
+                st.error("Incorrect password")
+        st.stop()
+else:
+    pass
 
 def make_export_xlsx(df, launcher_name: str) -> bytes:
     export_cols = [
@@ -183,9 +204,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         for col, w in widths.items():
             ws.column_dimensions[col].width = w
 
-        # --- Meta sheet (for re-upload detection of manual van edits) ---
-        # We store the Transporter Id (if present), CX, and the van value at time of export.
-        # This lets us update van history ONLY for vans that were changed/fill-in by the user.
         transporter_col = None
         for _col in df.columns:
             _key = str(_col).strip().lower().replace(" ", "")
@@ -197,7 +215,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         if 'CX' in df.columns:
             meta_cols['CX'] = df['CX'].astype(str)
         else:
-            # Fallback: if CX isn't present, still write an empty column
             meta_cols['CX'] = pd.Series(["" for _ in range(len(df))])
 
         if transporter_col is not None:
@@ -263,7 +280,6 @@ def load_edited_schedule(file):
     return df
 
 
-# Helper to read the embedded Meta sheet from an exported schedule
 def load_edited_meta(file):
     """Read the embedded Meta sheet (if present) from an exported schedule."""
     try:
@@ -280,7 +296,6 @@ def load_edited_meta(file):
     meta['Transporter Id'] = meta['Transporter Id'].astype(str).str.strip()
     meta['CX'] = meta['CX'].astype(str).str.strip()
     meta['Van_original'] = meta['Van_original'].apply(clean_van_value).fillna('')
-    # Drop obviously empty rows
     meta = meta[(meta['Transporter Id'] != '') & (meta['CX'] != '')]
     return meta
 

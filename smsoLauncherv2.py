@@ -3,6 +3,10 @@ import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from collections import defaultdict
+import hashlib
+import hmac
+import os
+import base64
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -18,6 +22,10 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 VAN_HISTORY_SHEET_NAME = "SMSO_VanHistory"
+USERS_WORKSHEET_TITLE = "Users"
+# Put this in Streamlit Secrets to enable the host approval panel:
+# host_admin_password = "<choose a strong password>"
+HOST_ADMIN_PASSWORD_SECRET_KEY = "host_admin_password"
 
 def clean_van_value(v):
     if pd.isna(v):
@@ -66,6 +74,229 @@ def get_gs_client():
     except Exception as e:
         st.error(f"Error creating Google Sheets client: {e}")
         return None
+
+def _pbkdf2_hash_password(password: str, salt_b64: str | None = None) -> tuple[str, str]:
+    """Return (salt_b64, hash_b64) using PBKDF2-HMAC-SHA256."""
+    if salt_b64 is None:
+        salt = os.urandom(16)
+        salt_b64 = base64.b64encode(salt).decode("utf-8")
+    else:
+        salt = base64.b64decode(salt_b64.encode("utf-8"))
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200_000)
+    hash_b64 = base64.b64encode(dk).decode("utf-8")
+    return salt_b64, hash_b64
+
+def _verify_password(password: str, salt_b64: str, hash_b64: str) -> bool:
+    _salt, test_hash = _pbkdf2_hash_password(password, salt_b64=salt_b64)
+    return hmac.compare_digest(test_hash, (hash_b64 or "").strip())
+
+def _get_users_ws():
+    """Open (or create) the Users worksheet inside the VAN_HISTORY spreadsheet."""
+    client = get_gs_client()
+    if client is None:
+        return None
+    try:
+        sh = client.open(VAN_HISTORY_SHEET_NAME)
+    except Exception as e:
+        st.error(f"Error opening sheet '{VAN_HISTORY_SHEET_NAME}' for Users worksheet: {e}")
+        return None
+
+    try:
+        ws = sh.worksheet(USERS_WORKSHEET_TITLE)
+    except Exception:
+        try:
+            ws = sh.add_worksheet(title=USERS_WORKSHEET_TITLE, rows=1000, cols=10)
+            headers = ["Email", "Name", "Salt", "PasswordHash", "Status", "CreatedAt"]
+            ws.update("A1", [headers])
+        except Exception as e:
+            st.error(f"Error creating Users worksheet: {e}")
+            return None
+    return ws
+
+def _users_get_all():
+    ws = _get_users_ws()
+    if ws is None:
+        return pd.DataFrame()
+    try:
+        data = ws.get_all_records()
+        return pd.DataFrame(data)
+    except Exception:
+        return pd.DataFrame()
+
+def _users_find_row_by_email(ws, email: str):
+    """Return 1-based row index in sheet for a given email, or None."""
+    try:
+        col_vals = ws.col_values(1)
+    except Exception:
+        return None
+    email_lc = (email or "").strip().lower()
+    for i, v in enumerate(col_vals, start=1):
+        if i == 1:
+            continue
+        if (v or "").strip().lower() == email_lc:
+            return i
+    return None
+
+def _users_create_pending(email: str, name: str, password: str) -> bool:
+    ws = _get_users_ws()
+    if ws is None:
+        return False
+    email = (email or "").strip().lower()
+    name = (name or "").strip()
+    if not email or not password:
+        return False
+
+    existing_row = _users_find_row_by_email(ws, email)
+    if existing_row is not None:
+        st.warning("That email already exists. If you were not approved yet, ask the host to approve your request.")
+        return False
+
+    salt_b64, hash_b64 = _pbkdf2_hash_password(password)
+    created = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    row = [email, name, salt_b64, hash_b64, "pending", created]
+    try:
+        ws.append_row(row)
+        return True
+    except Exception as e:
+        st.error(f"Error creating pending user: {e}")
+        return False
+
+def _users_authenticate(email: str, password: str):
+    """Return dict user row if approved + password matches; else None."""
+    ws = _get_users_ws()
+    if ws is None:
+        return None
+    email = (email or "").strip().lower()
+    if not email or not password:
+        return None
+
+    dfu = _users_get_all()
+    if dfu.empty or "Email" not in dfu.columns:
+        return None
+
+    dfu["Email"] = dfu["Email"].astype(str).str.strip().str.lower()
+    hit = dfu[dfu["Email"] == email]
+    if hit.empty:
+        return None
+
+    user = hit.iloc[0].to_dict()
+    status = str(user.get("Status", "")).strip().lower()
+    if status != "approved":
+        return {"error": f"Account status is '{status}'. Ask the host to approve your account."}
+
+    salt_b64 = str(user.get("Salt", "")).strip()
+    hash_b64 = str(user.get("PasswordHash", "")).strip()
+    if not salt_b64 or not hash_b64:
+        return {"error": "Account record is missing password data."}
+
+    if not _verify_password(password, salt_b64, hash_b64):
+        return {"error": "Invalid email or password."}
+
+    return user
+
+def _users_set_status(email: str, new_status: str) -> bool:
+    ws = _get_users_ws()
+    if ws is None:
+        return False
+    row_idx = _users_find_row_by_email(ws, (email or "").strip().lower())
+    if row_idx is None:
+        return False
+    try:
+        ws.update_cell(row_idx, 5, new_status)
+        return True
+    except Exception as e:
+        st.error(f"Error updating user status: {e}")
+        return False
+
+def auth_gate():
+    """Gate the entire app behind a simple login + host approval workflow."""
+    if "auth_user" not in st.session_state:
+        st.session_state["auth_user"] = None
+
+    if st.session_state["auth_user"] is not None:
+        with st.sidebar:
+            st.markdown(f"**Logged in as:** {st.session_state['auth_user'].get('Email','')}")
+            if st.button("Log out"):
+                st.session_state["auth_user"] = None
+                st.rerun()
+        return True
+
+    st.title("SMSO Scheduler Login")
+    tabs = st.tabs(["Login", "Request Access", "Host Approvals"])
+
+    with tabs[0]:
+        email = st.text_input("Email", key="login_email")
+        pw = st.text_input("Password", type="password", key="login_pw")
+        if st.button("Log in", key="login_btn"):
+            res = _users_authenticate(email, pw)
+            if res is None:
+                st.error("Invalid email or password (or account not found).")
+            elif isinstance(res, dict) and res.get("error"):
+                st.error(res["error"])
+            else:
+                st.session_state["auth_user"] = res
+                st.success("Logged in!")
+                st.rerun()
+
+    with tabs[1]:
+        st.write("Create a request. The host must approve before you can log in.")
+        name = st.text_input("Full name", key="req_name")
+        email = st.text_input("Email", key="req_email")
+        pw1 = st.text_input("Password", type="password", key="req_pw1")
+        pw2 = st.text_input("Confirm password", type="password", key="req_pw2")
+        if st.button("Request access", key="req_btn"):
+            if pw1 != pw2:
+                st.error("Passwords do not match.")
+            elif not email.strip():
+                st.error("Email is required.")
+            elif not pw1:
+                st.error("Password is required.")
+            else:
+                ok = _users_create_pending(email, name, pw1)
+                if ok:
+                    st.success("Request submitted. Ask the host to approve you.")
+
+    with tabs[2]:
+        admin_pw = None
+        try:
+            admin_pw = st.secrets.get(HOST_ADMIN_PASSWORD_SECRET_KEY, None)
+        except Exception:
+            admin_pw = None
+
+        if not admin_pw:
+            st.info("Host approval panel is disabled. Add `host_admin_password` to Streamlit secrets to enable it.")
+        else:
+            entered = st.text_input("Host admin password", type="password", key="host_admin_pw")
+            if entered != admin_pw:
+                st.warning("Enter the correct host admin password to manage approvals.")
+            else:
+                dfu = _users_get_all()
+                if dfu.empty:
+                    st.info("No users found.")
+                else:
+                    dfu["Email"] = dfu["Email"].astype(str).str.strip().str.lower()
+                    dfu["Status"] = dfu.get("Status", "").astype(str).str.strip().str.lower()
+                    pending = dfu[dfu["Status"] == "pending"]
+                    st.subheader("Pending requests")
+                    if pending.empty:
+                        st.info("No pending requests.")
+                    else:
+                        for _, r in pending.iterrows():
+                            e = str(r.get("Email", "")).strip().lower()
+                            n = str(r.get("Name", "")).strip()
+                            cols = st.columns([3, 3, 1, 1])
+                            cols[0].write(e)
+                            cols[1].write(n)
+                            if cols[2].button("Approve", key=f"appr_{e}"):
+                                if _users_set_status(e, "approved"):
+                                    st.success(f"Approved {e}")
+                                    st.rerun()
+                            if cols[3].button("Reject", key=f"rej_{e}"):
+                                if _users_set_status(e, "rejected"):
+                                    st.success(f"Rejected {e}")
+                                    st.rerun()
+
+    return False
 
 def load_van_memory_from_sheet():
     client = get_gs_client()
@@ -140,6 +371,9 @@ def save_van_memory_to_sheet(memory, routes_df, transporter_col):
 
 st.set_page_config(page_title="SMSOLauncher", layout="wide")
 
+if not auth_gate():
+    st.stop()
+
 def make_export_xlsx(df, launcher_name: str) -> bytes:
     export_cols = [
         'Order', 'Driver name', "CX #'s", 'Van', 'Staging Location', 'Pad', 'Time'
@@ -183,9 +417,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         for col, w in widths.items():
             ws.column_dimensions[col].width = w
 
-        # --- Meta sheet (for re-upload detection of manual van edits) ---
-        # We store the Transporter Id (if present), CX, and the van value at time of export.
-        # This lets us update van history ONLY for vans that were changed/fill-in by the user.
         transporter_col = None
         for _col in df.columns:
             _key = str(_col).strip().lower().replace(" ", "")
@@ -197,7 +428,6 @@ def make_export_xlsx(df, launcher_name: str) -> bytes:
         if 'CX' in df.columns:
             meta_cols['CX'] = df['CX'].astype(str)
         else:
-            # Fallback: if CX isn't present, still write an empty column
             meta_cols['CX'] = pd.Series(["" for _ in range(len(df))])
 
         if transporter_col is not None:
@@ -263,7 +493,6 @@ def load_edited_schedule(file):
     return df
 
 
-# Helper to read the embedded Meta sheet from an exported schedule
 def load_edited_meta(file):
     """Read the embedded Meta sheet (if present) from an exported schedule."""
     try:
@@ -280,7 +509,6 @@ def load_edited_meta(file):
     meta['Transporter Id'] = meta['Transporter Id'].astype(str).str.strip()
     meta['CX'] = meta['CX'].astype(str).str.strip()
     meta['Van_original'] = meta['Van_original'].apply(clean_van_value).fillna('')
-    # Drop obviously empty rows
     meta = meta[(meta['Transporter Id'] != '') & (meta['CX'] != '')]
     return meta
 

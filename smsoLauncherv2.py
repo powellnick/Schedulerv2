@@ -150,13 +150,18 @@ if SITE_PASSWORD:
     if not st.session_state["site_authed"]:
         st.title("SMSO Schedule Builder")
         st.caption("Enter the site password to continue.")
-        pw = st.text_input("Password", type="password")
-        if st.button("Enter"):
+
+        with st.form("site_password_form", clear_on_submit=False):
+            pw = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Enter")
+
+        if submitted:
             if pw == SITE_PASSWORD:
                 st.session_state["site_authed"] = True
                 st.rerun()
             else:
                 st.error("Incorrect password")
+
         st.stop()
 else:
     pass

@@ -692,15 +692,13 @@ with col2:
 
 col3, col4 = st.columns(2)
 with col3:    
-    downvans_file = st.file_uploader("Upload Down Vans file (optional, .xlsx)", type=["xlsx"], key="downvans")
-with col4:
     availablevans_file = st.file_uploader("Upload Vans Available file (optional, .xlsx)", type=["xlsx"], key="availablevans")
-
-edited_schedule_file = st.file_uploader(
-    "Re-upload edited Schedule (from Download Excel)",
-    type=["xlsx"],
-    key="edited_schedule"
-)
+with col4:
+    edited_schedule_file = st.file_uploader(
+        "Re-upload edited Schedule (from Download Excel)",
+        type=["xlsx"],
+        key="edited_schedule"
+    )
 
 with st.expander("Clear van history cache"):
     clear_pw = st.text_input("Enter password to clear van history", type="password", key="clear_van_pw")
